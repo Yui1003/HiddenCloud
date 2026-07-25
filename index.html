@@ -2025,7 +2025,7 @@ function renderDetail(clanId) {
     ba.classList.add('visible');
     document.getElementById('detail-bleed-alert-title').textContent = '\u{1F534} GAINING (BLEED)';
     document.getElementById('detail-bleed-msg').textContent =
-      `Bleed pattern detected \u2014 2+ members gained rep within 5s of each other, or a single member gained rep consecutively within 10s. This clan is likely farming a bleeding target.`;
+      `Bleed pattern detected \u2014  a single member gained rep consecutively within 10s. This clan is likely farming a bleeding target.`;
   } else if (status === 'risk') {
     ba.classList.add('visible');
     document.getElementById('detail-bleed-alert-title').textContent = '\u26A0 RISK BLEED';
