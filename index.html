@@ -697,7 +697,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
           <div id="detail-clan-sub">Rank #&#8212; &#183; Master: &#8212;</div>
         </div>
         <div id="detail-actions">
-          <button id="set-your-clan-btn">Set as Yours</button>
+          <button id="detail-mark-bleed-btn" class="bleed-btn" style="display:none"></button>
         </div>
       </div>
       <div id="detail-stats-row">
@@ -799,9 +799,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
           <div class="settings-row">
             <div>
               <div class="settings-row-label">Your Clan</div>
-              <div class="settings-row-sub" id="setting-your-clan-name">Not set &#8212; go to Rankings to pick</div>
+              <div class="settings-row-sub" id="setting-your-clan-name">Hidden Cloud Village (permanent)</div>
             </div>
-            <button class="tc-remove" onclick="clearYourClan()">Clear</button>
+            <span style="font-size:11px;color:var(--mauve);font-weight:700">FIXED</span>
           </div>
         </div>
 
@@ -810,7 +810,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
           <div class="settings-row">
             <div>
               <div class="settings-row-label">Bleeding Notifications</div>
-              <div class="settings-row-sub">Browser alert when more than 5 clans gain reputation in a round</div>
+              <div class="settings-row-sub">Possible Bleeding after 3+ clans stay Gaining (Bleed) for 10s, or Confirmed Bleeding when a clan is marked</div>
             </div>
             <div id="notif-toggle" class="settings-toggle" onclick="toggleNotif()"></div>
           </div>
@@ -1131,7 +1131,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function (error) {
+      navigator.serviceWorker.register('./sw.js', { scope: './' }).then(function (registration) {
+        window.hcldServiceWorkerRegistration = registration;
+      }).catch(function (error) {
         console.warn('PWA service worker registration failed:', error);
       });
     });
@@ -1146,6 +1148,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 // ============================================================
 const API_URL = 'https://static.ninjasaga.cc/data/clan_rankings.json';
 const STORAGE_KEY = 'clan_live_tracker';
+const PERMANENT_CLAN_ID = 777;
+const PUSH_PUBLIC_KEY_URL = '/api/push/public-key';
+const PUSH_SUBSCRIBE_URL = '/api/push/subscribe';
+const PUSH_CONFIRMED_URL = '/api/push/confirmed';
 
 // In-memory dedup set for suspectLog \u2014 rebuilt from storage on load
 // Prevents the same drop event being recorded twice across polls
@@ -1186,7 +1192,7 @@ let state = {
   currentDetailClanId: null,
   settings: {
     notificationsEnabled: false,
-    yourClanId: null,
+    yourClanId: PERMANENT_CLAN_ID,
   },
   // Current in-progress 30-min round (aligned to game's fixed HH:00 / HH:30 marks)
   round: {
@@ -1234,6 +1240,12 @@ let _pendingUnmarkClanId = null;
 let _pendingMarkClanId = null;
 // Discord webhook URL (admin-set, persisted in Firebase config)
 let discordWebhookUrl = '';
+let confirmedBleedsLoaded = false;
+const confirmedBleedNotificationKeys = new Set();
+let possibleBleedSince = null;
+let lastNotifiedPossibleBleedRoundId = null;
+let pushSubscriptionActive = false;
+let pushSubscriptionEndpoint = null;
 
 function loadFromStorage() {
   try {
@@ -1347,7 +1359,6 @@ async function fetchData(manual = false) {
       renderCurrentView();
       flashChangedReps();
 
-      if (state.settings.notificationsEnabled) checkBleedingNotifications();
     } else {
       // Data unchanged \u2014 just update loading state silently
       document.getElementById('loading').classList.remove('visible');
@@ -1357,6 +1368,7 @@ async function fetchData(manual = false) {
       if (roundRolledOver) { renderCurrentView(); saveToStorage(); }
     }
 
+    if (state.settings.notificationsEnabled) checkBleedingNotifications();
     updateLiveStatus();
   } catch(e) {
     lastPollAt = Date.now(); // still mark poll attempt
@@ -2116,16 +2128,18 @@ function renderDetail(clanId) {
     ba.classList.remove('visible');
   }
 
-  // Set Your Clan button
-  const sycBtn = document.getElementById('set-your-clan-btn');
-  if (isYours) {
-    sycBtn.textContent = '\u2713 Your Clan (tap to unset)';
-    sycBtn.style.background = 'rgba(240,165,0,0.15)';
-    sycBtn.style.color = 'var(--mauve)';
-  } else {
-    sycBtn.textContent = 'Set as Yours';
-    sycBtn.style.background = 'var(--mauve)';
-    sycBtn.style.color = '#0a0a0a';
+  // The clan is fixed to Hidden Cloud Village. Detail pages use the same
+  // Mark Bleed action as the ranking cards instead of changing clan selection.
+  const detailBleedBtn = document.getElementById('detail-mark-bleed-btn');
+  if (detailBleedBtn) {
+    const bleedInfo = confirmedBleeds[clan.id];
+    const markedThisRound = bleedInfo && state.round.id && bleedInfo.roundId === state.round.id;
+    detailBleedBtn.style.display = loggedInUserName ? '' : 'none';
+    detailBleedBtn.className = 'bleed-btn' + (bleedInfo ? ' active' : '');
+    detailBleedBtn.style.opacity = bleedInfo && !markedThisRound ? '0.55' : '1';
+    detailBleedBtn.style.cursor = bleedInfo && !markedThisRound ? 'default' : 'pointer';
+    detailBleedBtn.textContent = bleedInfo ? '🩸 Bleeding' : '🩸 Mark Bleed';
+    detailBleedBtn.onclick = () => toggleClanBleed(clan.id);
   }
 
   // Render member list \u2014 sorted by biggest gainers first (most active attackers)
@@ -3163,6 +3177,18 @@ async function markClanBleed(clanId) {
   await db.collection('bleedEventLog').add(logEntry)
     .catch(e => console.warn('bleedEventLog write error', e));
 
+  notifyConfirmedBleeding(clan.name, `${clanId}:${ts}`);
+  fetch(PUSH_CONFIRMED_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      clanName: clan.name,
+      eventKey: `${clanId}:${ts}`,
+      roundId: state.round.id || null,
+      excludeEndpoint: pushSubscriptionEndpoint,
+    }),
+  }).catch(e => console.warn('background confirmed bleed notification error', e));
+
   // Discord ping
   sendDiscordBleedPing(clan, 'marked');
 }
@@ -3271,38 +3297,14 @@ function saveDiscordWebhook() {
 // ============================================================
 // CLAN ACTIONS
 // ============================================================
-function setYourClan() {
-  if (!state.currentDetailClanId) return;
-  const clan = getClanById(state.currentDetailClanId);
-  if (!clan) return;
-
-  state.settings.yourClanId = clan.id;
-  saveToStorage();
-  applySettings();
-  renderDetail(state.currentDetailClanId);
-  renderYourClanBanner();
-
-  // Update header
-  document.getElementById('header-clan-title').textContent = clan.name;
-}
-
 function clearYourClan() {
-  state.settings.yourClanId = null;
+  // Kept as a compatibility handler for old local markup/bookmarks.
+  state.settings.yourClanId = PERMANENT_CLAN_ID;
   saveToStorage();
   applySettings();
   renderYourClanBanner();
-  document.getElementById('header-clan-title').textContent = 'Clan Live Tracker';
+  document.getElementById('header-clan-title').textContent = 'HC Village Tracker';
 }
-
-document.addEventListener('click', e => {
-  if (e.target && e.target.id === 'set-your-clan-btn') {
-    const clan = getClanById(state.currentDetailClanId);
-    if (!clan) return;
-    const isYours = clan.id === state.settings.yourClanId;
-    if (isYours) { clearYourClan(); renderDetail(clan.id); }
-    else { setYourClan(); }
-  }
-});
 
 // ============================================================
 // SEASON COUNTDOWN
@@ -3394,32 +3396,149 @@ function updateLiveStatus() {
 // ============================================================
 function toggleNotif() {
   if (!state.settings.notificationsEnabled) {
+    if (!('Notification' in window)) {
+      window.alert('This browser does not support notifications.');
+      return;
+    }
     Notification.requestPermission().then(p => {
       if (p === 'granted') {
         state.settings.notificationsEnabled = true;
         saveToStorage();
         applySettings();
+        subscribeForPushNotifications().catch(e => console.warn('Push subscription error:', e));
+        checkBleedingNotifications();
       }
     });
   } else {
     state.settings.notificationsEnabled = false;
     saveToStorage();
     applySettings();
+    unsubscribeFromPushNotifications().catch(e => console.warn('Push unsubscribe error:', e));
   }
 }
 
-const BLEEDING_GAINERS_THRESHOLD = 5;
-let lastNotifiedBleedingRoundId = null;
-function checkBleedingNotifications() {
+const POSSIBLE_BLEEDING_CLAN_THRESHOLD = 2;
+const POSSIBLE_BLEEDING_DELAY_MS = 10000;
+
+function showNotification(title, body, tag) {
+  if (!state.settings.notificationsEnabled) return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const options = {
+    body,
+    icon: './pwa-icon-192.png',
+    badge: './pwa-icon-192.png',
+    tag: tag || 'hidden-cloud-bleeding',
+    renotify: false,
+  };
+  if (window.hcldServiceWorkerRegistration) {
+    window.hcldServiceWorkerRegistration.showNotification(title, options).catch(() => {});
+  } else {
+    try { new Notification(title, options); } catch (e) { /* permission race */ }
+  }
+}
+
+function notifyPossibleBleeding(gainerCount) {
+  showNotification(
+    '\u26A0 Possible Bleeding',
+    `There have been ${gainerCount} clans in Gaining (Bleed) status. Bleeding occurred, hurry and find who is bleeding!`,
+    'hidden-cloud-possible-bleeding-' + state.round.id
+  );
+}
+
+function notifyConfirmedBleeding(clanName, eventKey) {
+  const key = eventKey || (clanName + ':' + state.round.id);
+  if (confirmedBleedNotificationKeys.has(key)) return;
+  confirmedBleedNotificationKeys.add(key);
+  showNotification(
+    '\u{1F6A8} Confirmed Bleeding',
+    `The clan "${clanName}" is bleeding! Hurry up and attack!`,
+    'hidden-cloud-confirmed-bleeding-' + key
+  );
+}
+
+function checkBleedingNotifications() {
   if (!state.data || !state.round.startSnap) return;
-  const gainerCount = state.data.clans.filter(c => getClanRoundGain(c.id) > 0).length;
-  if (gainerCount > BLEEDING_GAINERS_THRESHOLD && lastNotifiedBleedingRoundId !== state.round.id) {
-    lastNotifiedBleedingRoundId = state.round.id;
-    new Notification('\u26A0 Bleeding Detected', {
-      body: `${gainerCount} clans have gained reputation this round.`,
-      icon: '',
+  const gainerCount = state.data.clans.filter(c => getClanRepStatus(c.id) === 'gaining-bleed').length;
+  if (gainerCount > POSSIBLE_BLEEDING_CLAN_THRESHOLD) {
+    if (!possibleBleedSince || possibleBleedSince.roundId !== state.round.id) {
+      possibleBleedSince = { roundId: state.round.id, since: Date.now() };
+    }
+    if (
+      Date.now() - possibleBleedSince.since >= POSSIBLE_BLEEDING_DELAY_MS &&
+      lastNotifiedPossibleBleedRoundId !== state.round.id
+    ) {
+      lastNotifiedPossibleBleedRoundId = state.round.id;
+      // A subscribed device receives this from the background detector. The
+      // local fallback is for browsers that cannot complete push setup.
+      if (!pushSubscriptionActive) notifyPossibleBleeding(gainerCount);
+    }
+  } else {
+    possibleBleedSince = null;
+  }
+}
+
+async function subscribeForPushNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const registration = window.hcldServiceWorkerRegistration || await navigator.serviceWorker.ready;
+  const keyResponse = await fetch('/api/push/public-key', { cache: 'no-store' });
+  if (!keyResponse.ok) throw new Error('Push notifications are not configured on the server.');
+  const { publicKey } = await keyResponse.json();
+  const padding = '='.repeat((4 - publicKey.length % 4) % 4);
+  const applicationServerKey = Uint8Array.from(
+    atob((publicKey + padding).replace(/-/g, '+').replace(/_/g, '/')),
+    c => c.charCodeAt(0)
+  );
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey,
     });
+  }
+  const response = await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subscription),
+  });
+  if (!response.ok) throw new Error('Could not save this device for push notifications.');
+  pushSubscriptionActive = true;
+  pushSubscriptionEndpoint = subscription.endpoint;
+}
+
+async function unsubscribeFromPushNotifications() {
+  if (!('serviceWorker' in navigator)) return;
+  const registration = window.hcldServiceWorkerRegistration || await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.getSubscription();
+  if (!subscription) return;
+  await fetch('/api/push/subscribe', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  }).catch(() => {});
+  await subscription.unsubscribe();
+  pushSubscriptionActive = false;
+  pushSubscriptionEndpoint = null;
+}
+
+async function syncPushSubscription() {
+  if (!state.settings.notificationsEnabled ||
+      !('Notification' in window) ||
+      Notification.permission !== 'granted' ||
+      !('serviceWorker' in navigator) ||
+      !('PushManager' in window)) return;
+  const registration = window.hcldServiceWorkerRegistration || await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.getSubscription();
+  if (subscription) {
+    const response = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subscription),
+    });
+    if (!response.ok) throw new Error('Could not re-sync this device for push notifications.');
+    pushSubscriptionActive = true;
+    pushSubscriptionEndpoint = subscription.endpoint;
+  } else {
+    await subscribeForPushNotifications();
   }
 }
 
@@ -3450,17 +3569,17 @@ function confirmClearHistory() {
 
 function confirmReset() {
   document.getElementById('modal-title').textContent = 'Reset All Settings?';
-  document.getElementById('modal-sub').textContent = 'This will clear your clan selection and all round history.';
+  document.getElementById('modal-sub').textContent = 'This will reset notification settings and all round history. Hidden Cloud Village remains your permanent clan.';
   document.getElementById('modal-confirm-btn').textContent = 'Reset Everything';
   document.getElementById('modal-confirm-btn').onclick = () => {
-    state.settings = { notificationsEnabled: false, yourClanId: null };
+    state.settings = { notificationsEnabled: false, yourClanId: PERMANENT_CLAN_ID };
     state.roundHistory = [];
     state.round = { id: null, startTs: null, startSnap: null };
     state.prevData = null;
     saveToStorage();
     closeModal();
     applySettings();
-    document.getElementById('header-clan-title').textContent = 'Clan Live Tracker';
+    document.getElementById('header-clan-title').textContent = 'HC Village Tracker';
     renderYourClanBanner();
   };
   document.getElementById('modal-overlay').classList.add('visible');
@@ -4076,10 +4195,24 @@ function initFirestoreListeners() {
   // ── Confirmed bleeds: live doc map (one doc per clan) ─────────────────────
   db.collection('confirmedBleeds')
     .onSnapshot(snap => {
+      const isInitialConfirmedBleedSnapshot = !confirmedBleedsLoaded;
+      if (!confirmedBleedsLoaded) {
+        snap.forEach(d => {
+          const data = d.data();
+          if (data.active && data.markedAt) confirmedBleedNotificationKeys.add(`${d.id}:${data.markedAt}`);
+        });
+        confirmedBleedsLoaded = true;
+      }
       confirmedBleeds = {};
       snap.forEach(d => {
         const data = d.data();
-        if (data.active) confirmedBleeds[Number(d.id)] = data;
+        if (data.active) {
+          confirmedBleeds[Number(d.id)] = data;
+          const key = `${d.id}:${data.markedAt || ''}`;
+          if (!isInitialConfirmedBleedSnapshot && data.markedAt && !confirmedBleedNotificationKeys.has(key) && !pushSubscriptionActive) {
+            notifyConfirmedBleeding(data.clanName || 'A clan', key);
+          }
+        }
       });
       if (state.currentTab === 'rankings') renderRankings();
       if (state.currentTab === 'bleed')    renderBleeding();
@@ -4754,7 +4887,7 @@ window._hcldInitTracker = function(userId, userName) {
   // Load any existing persisted state
   loadFromStorage();
   // Hard-lock yourClanId to Hidden Cloud Village (id 777) — always
-  state.settings.yourClanId = 777;
+  state.settings.yourClanId = PERMANENT_CLAN_ID;
   saveToStorage();
 
   // Show the logged-in user's name in the header badge
@@ -4774,6 +4907,7 @@ window._hcldInitTracker = function(userId, userName) {
   fetchData(false);
   startLivePolling();
   initFirebase();
+  syncPushSubscription().catch(e => console.warn('Push subscription sync error:', e));
   setAccessLevel('normal');
 };
 

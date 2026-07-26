@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hidden-cloud-pwa-v2';
+const CACHE_NAME = 'hidden-cloud-pwa-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -35,13 +35,14 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   const isSameOrigin = url.origin === self.location.origin;
+  const isApiRequest = isSameOrigin && url.pathname.startsWith('/api/');
   const isStaticExternalAsset =
     request.destination === 'script' ||
     request.destination === 'style' ||
     request.destination === 'font' ||
     request.destination === 'image';
 
-  if (isSameOrigin) {
+  if (isSameOrigin && !isApiRequest) {
     if (request.mode === 'navigate') {
       event.respondWith(
         fetch(request).catch(() => caches.match('./index.html'))
@@ -78,4 +79,36 @@ self.addEventListener('fetch', (event) => {
       })
     );
   }
+});
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (_) {
+    payload = { title: 'Hidden Cloud Bleeding', body: event.data ? event.data.text() : '' };
+  }
+
+  const title = payload.title || 'Hidden Cloud Bleeding';
+  const options = {
+    body: payload.body || '',
+    icon: payload.icon || './pwa-icon-192.png',
+    badge: payload.badge || './pwa-icon-192.png',
+    tag: payload.tag || 'hidden-cloud-bleeding',
+    data: { url: './' },
+    renotify: false,
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) return client.focus();
+      }
+      if (clients.openWindow) return clients.openWindow(event.notification.data?.url || './');
+    })
+  );
 });
