@@ -5,6 +5,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Hidden Cloud CW Live Tracker | ninjasaga.cc</title>
+<meta name="description" content="Hidden Cloud Village Clan War live tracker">
+<meta name="theme-color" content="#0a0a0a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hidden Cloud">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/png" href="./pwa-icon-192.png">
+<link rel="apple-touch-icon" href="./pwa-icon-180.png">
 <style>
 :root {
   /* Hidden Cloud Village — Black · Gold · White */
@@ -46,7 +55,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 #app{display:flex;flex-direction:column;height:100%;overflow:hidden}
 /* HEADER */
 #header{height:var(--header-h);background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:10px;flex-shrink:0;z-index:10}
-#header-logo{width:32px;height:32px;background:linear-gradient(135deg,#f0a500,#ffd60a);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#0a0a0a;flex-shrink:0}
+#header-logo{width:32px;height:32px;object-fit:contain;border-radius:8px;display:block;flex-shrink:0}
 #header-title{flex:1;min-width:0}
 #header-title h1{font-size:15px;font-weight:700;color:var(--text);letter-spacing:0.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #header-title p{font-size:11px;color:var(--text3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -55,6 +64,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 #refresh-btn:hover{border-color:var(--mauve);color:var(--mauve)}
 #refresh-btn.spinning svg{animation:spin 1s linear infinite}
 #last-updated{font-size:10px;color:var(--text3)}
+#pwa-install-btn{display:none;background:var(--mauve);border:1px solid var(--mauve);color:#0a0a0a;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700;align-items:center;gap:4px;white-space:nowrap}
+#pwa-install-btn.visible{display:flex}
+#pwa-install-btn:hover{background:#ffd60a;border-color:#ffd60a}
+.pwa-install-btn{background:var(--mauve);border:1px solid var(--mauve);color:#0a0a0a;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700}
+.pwa-install-btn:hover{background:#ffd60a;border-color:#ffd60a}
 /* TAB BAR */
 #tabs{display:flex;background:var(--bg2);border-top:1px solid var(--border);height:var(--tab-h);flex-shrink:0}
 .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;color:var(--text3);transition:all .2s;border-top:2px solid transparent;padding:8px 4px}
@@ -398,7 +412,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
    ============================================================ */
 #login-screen{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 20px;overflow-y:auto}
 .login-card{width:100%;max-width:380px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:30px 24px;display:flex;flex-direction:column;gap:20px}
-.login-logo{width:60px;height:60px;background:linear-gradient(135deg,#f0a500,#ffd60a);border-radius:16px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:22px;color:#0a0a0a;margin:0 auto;box-shadow:0 8px 28px rgba(240,165,0,0.35)}
+.login-logo{width:60px;height:60px;object-fit:contain;border-radius:16px;display:block;margin:0 auto;box-shadow:0 8px 28px rgba(240,165,0,0.35)}
 .login-branding{text-align:center}
 .login-branding h1{font-size:19px;font-weight:800;color:var(--text);line-height:1.3;letter-spacing:0.2px}
 .login-branding p{font-size:11px;color:var(--mauve);margin-top:5px;font-weight:700;letter-spacing:1px}
@@ -542,7 +556,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
      ============================================================ -->
 <div id="login-screen">
   <div class="login-card">
-    <div class="login-logo">HC</div>
+    <img class="login-logo" src="./hidden-cloud-logo.png" alt="Hidden Cloud Village logo">
 
     <div class="login-branding">
       <h1>Hidden Cloud Village<br>CW Live Tracker</h1>
@@ -588,7 +602,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 <div id="app" style="display:none">
   <!-- HEADER -->
   <div id="header">
-    <div id="header-logo">HC</div>
+    <img id="header-logo" src="./hidden-cloud-logo.png" alt="Hidden Cloud Village logo">
     <div id="header-title">
       <h1 id="header-clan-title">Clan Live Tracker</h1>
       <p><span class="live-dot"></span><span id="header-sub">ninjasaga.cc</span></p>
@@ -601,6 +615,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
         <span class="live-pulse" id="live-dot"></span>
         <span id="live-label">Connecting&#8230;</span>
       </div>
+      <button id="pwa-install-btn" onclick="window.installPwa()" title="Install Hidden Cloud Tracker">&#8615; Install</button>
       <button id="refresh-btn" onclick="fetchData(true)" title="Force refresh">
         <svg id="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
       </button>
@@ -806,6 +821,19 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
             </div>
             <button class="tc-remove" onclick="fetchData(true)" style="color:var(--mauve);background:rgba(240,165,0,0.1);border-color:rgba(240,165,0,0.3)">Refresh Now</button>
           </div>
+        </div>
+        <div class="settings-section" style="margin-top:10px" id="settings-pwa-section">
+          <div class="settings-section-title">Install App</div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">Use Hidden Cloud like an app</div>
+              <div class="settings-row-sub">Install it on your device for a dedicated window and home-screen icon.</div>
+            </div>
+            <div class="settings-row-right">
+              <button class="pwa-install-btn" onclick="window.installPwa()">Install</button>
+            </div>
+          </div>
+          <div class="settings-row-sub" style="padding:0 14px 12px">On iPhone or iPad, open this site in Safari, tap Share, then choose “Add to Home Screen”.</div>
         </div>
 
         <div class="settings-section" style="margin-top:10px" id="settings-data-section">
@@ -1057,6 +1085,59 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 <!-- Firebase compat SDK (works with regular non-module scripts) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<!-- PWA registration and install prompt -->
+<script>
+(function () {
+  var deferredPrompt = null;
+  var installButton = document.getElementById('pwa-install-btn');
+
+  function isIosDevice() {
+    return /iphone|ipad|ipod/i.test(window.navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
+  function setInstallButtonVisible(visible) {
+    if (installButton) installButton.classList.toggle('visible', visible);
+  }
+
+  window.addEventListener('beforeinstallprompt', function (event) {
+    event.preventDefault();
+    deferredPrompt = event;
+    setInstallButtonVisible(true);
+  });
+
+  window.addEventListener('appinstalled', function () {
+    deferredPrompt = null;
+    setInstallButtonVisible(false);
+  });
+
+  window.installPwa = async function () {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      setInstallButtonVisible(false);
+      return;
+    }
+
+    if (isIosDevice()) {
+      window.alert('To install Hidden Cloud: tap Share in Safari, then choose “Add to Home Screen”.');
+      return;
+    }
+
+    window.alert('Use your browser’s install button or menu option to add Hidden Cloud to your device.');
+  };
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function (error) {
+        console.warn('PWA service worker registration failed:', error);
+      });
+    });
+  }
+})();
+</script>
 
 <script>
 (function () {
