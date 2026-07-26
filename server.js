@@ -74,7 +74,7 @@ function loadVapidKeys() {
 
 const { privateKey, publicKey } = loadVapidKeys();
 webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT || 'mailto:hidden-cloud@example.invalid',
+  process.env.VAPID_SUBJECT || 'https://hiddencloud.onrender.com',
   publicKey,
   privateKey
 );

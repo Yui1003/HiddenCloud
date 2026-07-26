@@ -95,7 +95,7 @@ self.addEventListener('push', (event) => {
     icon: payload.icon || './pwa-icon-192.png',
     badge: payload.badge || './pwa-icon-192.png',
     tag: payload.tag || 'hidden-cloud-bleeding',
-    data: { url: './' },
+    data: { url: self.location.origin + '/' },
     renotify: false,
   };
   event.waitUntil(self.registration.showNotification(title, options));
@@ -108,7 +108,7 @@ self.addEventListener('notificationclick', (event) => {
       for (const client of clientList) {
         if ('focus' in client) return client.focus();
       }
-      if (clients.openWindow) return clients.openWindow(event.notification.data?.url || './');
+      if (clients.openWindow) return clients.openWindow(event.notification.data?.url || self.location.origin + '/');
     })
   );
 });
