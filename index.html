@@ -1408,7 +1408,7 @@ function repSnapshot(json) {
     for (const m of clan.member_list) {
       members[m.id] = m.reputation;
     }
-    snap[clan.id] = { name: clan.name, rep: clan.reputation, members };
+    snap[clan.id] = { name: clan.name, rep: clan.reputation, deduction: clan.deduction || 0, members };
   }
   return snap;
 }
@@ -1478,6 +1478,24 @@ function getClanRoundGain(clanId) {
   const curr = state.data.clans.find(c => c.id === clanId);
   if (!curr || !startEntry) return null;
   return curr.reputation - startEntry.rep;
+}
+
+// Display-safe version of getClanRoundGain for non-admin users.
+// Admins see the true net value (reputation change including any anti-cheat
+// deduction). Non-admins see only the reputation earned through attacks:
+// any deduction applied mid-round is added back so the number never goes
+// negative due to a penalty they shouldn't know about.
+// Returns null (renders as '—') if there is genuinely no data yet.
+function getClanRoundGainForDisplay(clanId) {
+  const rawGain = getClanRoundGain(clanId);
+  if (rawGain === null) return null;
+  if (accessLevel === 'admin' || rawGain >= 0) return rawGain;
+  // Non-admin + negative net: strip out the deduction applied this round.
+  const startEntry = state.round.startSnap[clanId];
+  const curr = state.data.clans.find(c => c.id === clanId);
+  const deductionThisRound = (curr.deduction || 0) - (startEntry.deduction || 0);
+  const attackGain = rawGain + deductionThisRound;
+  return attackGain >= 0 ? attackGain : null;
 }
 
 // Only clans inside the top N are realistic war targets, so a flat clan
@@ -1980,7 +1998,7 @@ function renderRankings() {
     const isConfirmedBleed = !!confirmedBleeds[clan.id];
     const status = isConfirmedBleed ? 'confirmed-bleed' : getClanRepStatus(clan.id);
     const activity = getClanDisplayActivity(clan.id);
-    const roundGain = getClanRoundGain(clan.id);
+    const roundGain = getClanRoundGainForDisplay(clan.id);
 
     let rankClass = '';
     if (clan.rank === 1) rankClass = 'gold';
@@ -2054,7 +2072,7 @@ function renderYourClanBanner() {
   if (!clan) return;
   const status = getClanRepStatus(id);
   const activity = getClanDisplayActivity(id);
-  const roundGain = getClanRoundGain(id);
+  const roundGain = getClanRoundGainForDisplay(id);
 
   banner.classList.add('visible');
   document.getElementById('ycb-name').textContent = clan.name;
@@ -2090,7 +2108,7 @@ function renderDetail(clanId) {
   const isYours = clan.id === state.settings.yourClanId;
   const status = getClanRepStatus(clan.id);
   const activity = getClanDisplayActivity(clan.id);
-  const roundGain = getClanRoundGain(clan.id);
+  const roundGain = getClanRoundGainForDisplay(clan.id);
 
   document.getElementById('detail-clan-name').textContent = clan.name;
   document.getElementById('detail-clan-sub').textContent = `Rank #${clan.rank} \u00B7 Master: ${clan.master}`;
@@ -2943,7 +2961,7 @@ function renderBleeding() {
     confirmedList.sort((a, b) => (a.clanRank || 99) - (b.clanRank || 99));
     html += confirmedList.map(info => {
       const clan = getClanById(info.id);
-      const roundGain = clan ? getClanRoundGain(clan.id) : null;
+      const roundGain = clan ? getClanRoundGainForDisplay(clan.id) : null;
       const rep = clan ? fmtNum(clan.reputation) : fmtNum(info.clanRep || 0);
       const rank = clan ? clan.rank : (info.clanRank || '?');
       const name = esc(info.clanName || (clan ? clan.name : '?'));
@@ -2987,7 +3005,7 @@ function renderBleeding() {
 }
 
 function repStatusCardHtml(clan) {
-  const roundGain = getClanRoundGain(clan.id);
+  const roundGain = getClanRoundGainForDisplay(clan.id);
   const status = getClanRepStatus(clan.id);
   return `<div class="bleed-clan-card" onclick="viewClan(${clan.id})">
     <div class="bleed-clan-card-top">

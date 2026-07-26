@@ -50,7 +50,7 @@ function fromBase64Url(value) {
 function deriveVapidPublicKey(privateKey) {
   const ecdh = crypto.createECDH('prime256v1');
   ecdh.setPrivateKey(fromBase64Url(privateKey));
-  return base64Url(ecdh.getPublicKey(null, 'compressed'));
+  return base64Url(ecdh.getPublicKey(null, 'uncompressed'));
 }
 
 function loadVapidKeys() {
