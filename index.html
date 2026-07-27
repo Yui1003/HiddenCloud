@@ -1173,6 +1173,7 @@ let accessLevel = 'normal';
 // ── Weekly gains state ────────────────────────────────────────────────────────
 let weeklyGainsData    = null;  // live Firestore doc for weeklyGains/777
 let weeklyHistoryData  = [];    // array of past-week docs (newest first)
+let weeklyHistoryFetched = false; // loaded lazily on first weekly tab open
 let weekHistoryOpenKey = null;  // which history card is currently expanded
 
 // ── Logged-in user identity (set by _hcldInitTracker) ───────────────────────
@@ -3148,6 +3149,10 @@ function showTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
 
+  // Lazy-load Firestore data for tabs that don't use persistent listeners
+  if (tab === 'weekly' && db) loadWeeklyHistoryOnce();
+  if (tab === 'events' && db) loadEventsFromFirestore();
+
   renderCurrentView();
 }
 
@@ -4167,68 +4172,116 @@ function setFbStatus(state) {
 function initFirestoreListeners() {
   if (!db) return;
 
-  // \u2500\u2500 Suspect log: real-time listener \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // Snapshot of "now" used as the split point: docs before this ts are loaded
+  // with a one-time .get(); docs after are delivered by lightweight live listeners.
+  const loadTs = Date.now();
+
+  // ── Suspect log: one-time historical load + live tail for new entries only ─
   db.collection('suspectLog')
     .orderBy('ts', 'desc')
     .limit(1000)
-    .onSnapshot(snap => {
+    .get()
+    .then(snap => {
       setFbStatus('connected');
-      let added = 0;
-      snap.docChanges().forEach(change => {
-        if (change.type === 'added') {
-          const entry = change.doc.data();
-          // Entries with clanDeduction===0 are valid \u2014 deduction may arrive after
-          // the rep drop is caught. Only skip malformed entries (no dedupKey).
-          if (!entry.dedupKey) return;
-          if (!suspectLogKeysSeen.has(entry.dedupKey)) {
-            suspectLogKeysSeen.add(entry.dedupKey);
-            if (!state.suspectLog) state.suspectLog = [];
-            state.suspectLog.push(entry);
-            added++;
-          }
+      snap.forEach(doc => {
+        const entry = doc.data();
+        // Entries with clanDeduction===0 are valid — deduction may arrive after
+        // the rep drop is caught. Only skip malformed entries (no dedupKey).
+        if (!entry.dedupKey) return;
+        if (!suspectLogKeysSeen.has(entry.dedupKey)) {
+          suspectLogKeysSeen.add(entry.dedupKey);
+          if (!state.suspectLog) state.suspectLog = [];
+          state.suspectLog.push(entry);
         }
       });
-      if (added > 0) {
-        state.suspectLog.sort((a, b) => b.ts - a.ts);
-        if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
-        saveToStorage();
-        updateSuspectsTabBadge();
-        if (state.currentTab === 'suspects') renderSuspects();
-      }
-    }, err => {
+      state.suspectLog.sort((a, b) => b.ts - a.ts);
+      saveToStorage();
+      updateSuspectsTabBadge();
+      if (state.currentTab === 'suspects') renderSuspects();
+
+      // Live tail: overlap window covers clock-skew / same-ms writes; dedupKey prevents duplicates
+      db.collection('suspectLog')
+        .where('ts', '>=', loadTs - 5000)
+        .onSnapshot(liveSnap => {
+          let added = 0;
+          liveSnap.docChanges().forEach(change => {
+            if (change.type === 'added') {
+              const entry = change.doc.data();
+              if (!entry.dedupKey) return;
+              if (!suspectLogKeysSeen.has(entry.dedupKey)) {
+                suspectLogKeysSeen.add(entry.dedupKey);
+                if (!state.suspectLog) state.suspectLog = [];
+                state.suspectLog.push(entry);
+                added++;
+              }
+            }
+          });
+          if (added > 0) {
+            state.suspectLog.sort((a, b) => b.ts - a.ts);
+            if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
+            saveToStorage();
+            updateSuspectsTabBadge();
+            if (state.currentTab === 'suspects') renderSuspects();
+          }
+        }, err => {
+          console.warn('Firestore suspectLog live error', err);
+          setFbStatus('error');
+        });
+    })
+    .catch(err => {
       console.warn('Firestore suspectLog error', err);
       setFbStatus('error');
     });
 
-  // \u2500\u2500 Deduction log: real-time listener \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // ── Deduction log: one-time historical load + live tail for new entries only
   db.collection('deductionLog')
     .orderBy('ts', 'desc')
     .limit(500)
-    .onSnapshot(snap => {
-      let added = 0;
-      snap.docChanges().forEach(change => {
-        if (change.type === 'added') {
-          const entry = change.doc.data();
-          const key = `${entry.clanId}_${entry.ts}`;
-          const alreadyHave = (state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key);
-          if (!alreadyHave) {
-            if (!state.deductionLog) state.deductionLog = [];
-            state.deductionLog.push(entry);
-            added++;
-          }
+    .get()
+    .then(snap => {
+      snap.forEach(doc => {
+        const entry = doc.data();
+        const key = `${entry.clanId}_${entry.ts}`;
+        const alreadyHave = (state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key);
+        if (!alreadyHave) {
+          if (!state.deductionLog) state.deductionLog = [];
+          state.deductionLog.push(entry);
         }
       });
-      if (added > 0) {
-        state.deductionLog.sort((a, b) => b.ts - a.ts);
-        if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
-        saveToStorage();
-        if (state.currentTab === 'deductions') renderDeductions();
-      }
-    }, err => {
-      console.warn('Firestore deductionLog error', err);
-    });
+      state.deductionLog.sort((a, b) => b.ts - a.ts);
+      saveToStorage();
+      if (state.currentTab === 'deductions') renderDeductions();
 
-  // ── Weekly gains: single live doc ─────────────────────────────────────────
+      // Live tail: overlap window covers clock-skew / same-ms writes; key-based dedup prevents duplicates
+      db.collection('deductionLog')
+        .where('ts', '>=', loadTs - 5000)
+        .onSnapshot(liveSnap => {
+          let added = 0;
+          liveSnap.docChanges().forEach(change => {
+            if (change.type === 'added') {
+              const entry = change.doc.data();
+              const key = `${entry.clanId}_${entry.ts}`;
+              const alreadyHave = (state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key);
+              if (!alreadyHave) {
+                if (!state.deductionLog) state.deductionLog = [];
+                state.deductionLog.push(entry);
+                added++;
+              }
+            }
+          });
+          if (added > 0) {
+            state.deductionLog.sort((a, b) => b.ts - a.ts);
+            if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
+            saveToStorage();
+            if (state.currentTab === 'deductions') renderDeductions();
+          }
+        }, err => {
+          console.warn('Firestore deductionLog live error', err);
+        });
+    })
+    .catch(err => console.warn('Firestore deductionLog error', err));
+
+  // ── Weekly gains: single live doc (kept real-time — server writes every ~5s) ─
   db.collection('weeklyGains').doc('777')
     .onSnapshot(snap => {
       if (snap.exists) {
@@ -4239,38 +4292,14 @@ function initFirestoreListeners() {
       console.warn('Firestore weeklyGains error', err);
     });
 
-  // ── Weekly gains history (always fetch; admin renders it, others don't) ───
-  db.collection('weeklyGainsHistory')
-    .orderBy('weekKey', 'desc')
-    .limit(52)
-    .onSnapshot(snap => {
-      weeklyHistoryData = [];
-      snap.forEach(d => weeklyHistoryData.push(d.data()));
-      if (state.currentTab === 'weekly' && accessLevel === 'admin') renderWeeklyGains();
-    }, err => {
-      console.warn('Firestore weeklyGainsHistory error', err);
-    });
+  // ── Weekly gains history: lazy-loaded on first weekly tab open ────────────
+  // See loadWeeklyHistoryOnce() — called from showTab('weekly')
 
-  // ── Events: real-time listener ────────────────────────────────────────────
-  db.collection('events')
-    .orderBy('startTs', 'desc')
-    .limit(100)
-    .onSnapshot(snap => {
-      eventsData = [];
-      snap.forEach(d => eventsData.push({ id: d.id, ...d.data() }));
-      // Subscribe to gains for currently-active events
-      const now = Date.now();
-      eventsData.forEach(ev => {
-        if (ev.startTs && ev.endTs && ev.startTs <= now && now <= ev.endTs) {
-          subscribeEventGains(ev.id);
-        }
-      });
-      if (state.currentTab === 'events') renderEvents();
-    }, err => {
-      console.warn('Firestore events error', err);
-    });
+  // ── Events: one-time load on init; refreshed when events tab is opened ────
+  // See loadEventsFromFirestore() — also called from showTab('events')
+  loadEventsFromFirestore();
 
-  // ── Confirmed bleeds: live doc map (one doc per clan) ─────────────────────
+  // ── Confirmed bleeds: live doc map (kept real-time — drives instant alerts) ─
   db.collection('confirmedBleeds')
     .onSnapshot(snap => {
       const isInitialConfirmedBleedSnapshot = !confirmedBleedsLoaded;
@@ -4296,26 +4325,95 @@ function initFirestoreListeners() {
       if (state.currentTab === 'bleed')    renderBleeding();
     }, err => { console.warn('Firestore confirmedBleeds error', err); });
 
-  // ── Bleed event log: audit trail ──────────────────────────────────────────
+  // ── Bleed event log: one-time historical load + live tail for new entries ──
   db.collection('bleedEventLog')
     .orderBy('ts', 'desc')
     .limit(500)
-    .onSnapshot(snap => {
+    .get()
+    .then(snap => {
+      // Track doc IDs seen during initial load for dedup in the overlap window
+      const bleedDocIdsSeen = new Set();
       bleedEventLog = [];
-      snap.forEach(d => bleedEventLog.push(d.data()));
+      snap.forEach(d => { bleedDocIdsSeen.add(d.id); bleedEventLog.push(d.data()); });
       if (state.currentTab === 'history') renderHistory();
       if (state.currentTab === 'bleed')   renderBleeding();
-    }, err => { console.warn('Firestore bleedEventLog error', err); });
 
-  // ── Discord webhook URL from config ──────────────────────────────────────
+      // Live tail: overlap window covers clock-skew / same-ms writes; doc-ID dedup prevents duplicates
+      db.collection('bleedEventLog')
+        .where('ts', '>=', loadTs - 5000)
+        .onSnapshot(liveSnap => {
+          let added = 0;
+          liveSnap.docChanges().forEach(change => {
+            if (change.type === 'added' && !bleedDocIdsSeen.has(change.doc.id)) {
+              bleedDocIdsSeen.add(change.doc.id);
+              bleedEventLog.unshift(change.doc.data());
+              added++;
+            }
+          });
+          if (added > 0) {
+            if (bleedEventLog.length > 500) bleedEventLog = bleedEventLog.slice(0, 500);
+            if (state.currentTab === 'history') renderHistory();
+            if (state.currentTab === 'bleed')   renderBleeding();
+          }
+        }, err => { console.warn('Firestore bleedEventLog live error', err); });
+    })
+    .catch(err => console.warn('Firestore bleedEventLog error', err));
+
+  // ── Discord webhook URL: one-time read (only changes on admin action) ──────
   db.collection('config').doc('discordWebhook')
-    .onSnapshot(snap => {
+    .get()
+    .then(snap => {
       if (snap.exists) {
         discordWebhookUrl = snap.data().url || '';
         const inp = document.getElementById('discord-webhook-input');
         if (inp && accessLevel === 'admin') inp.value = discordWebhookUrl;
       }
-    }, err => { console.warn('Firestore discordWebhook error', err); });
+    })
+    .catch(err => console.warn('Firestore discordWebhook error', err));
+}
+
+// ── Lazy-load weekly gains history on first weekly tab open (admin only) ──────
+// One-time .get() per session; no persistent listener needed.
+function loadWeeklyHistoryOnce() {
+  if (weeklyHistoryFetched || !db) return;
+  weeklyHistoryFetched = true;
+  db.collection('weeklyGainsHistory')
+    .orderBy('weekKey', 'desc')
+    .limit(52)
+    .get()
+    .then(snap => {
+      weeklyHistoryData = [];
+      snap.forEach(d => weeklyHistoryData.push(d.data()));
+      if (state.currentTab === 'weekly' && accessLevel === 'admin') renderWeeklyGains();
+    })
+    .catch(err => {
+      weeklyHistoryFetched = false; // allow retry on next tab open
+      console.warn('Firestore weeklyGainsHistory error', err);
+    });
+}
+
+// ── Load/refresh events from Firestore ────────────────────────────────────────
+// Called once on Firebase init and again each time the events tab is opened,
+// so new events created by admins become visible without a persistent listener.
+function loadEventsFromFirestore() {
+  if (!db) return;
+  db.collection('events')
+    .orderBy('startTs', 'desc')
+    .limit(100)
+    .get()
+    .then(snap => {
+      eventsData = [];
+      snap.forEach(d => eventsData.push({ id: d.id, ...d.data() }));
+      // Subscribe to gains for currently-active events (real-time per event doc)
+      const now = Date.now();
+      eventsData.forEach(ev => {
+        if (ev.startTs && ev.endTs && ev.startTs <= now && now <= ev.endTs) {
+          subscribeEventGains(ev.id);
+        }
+      });
+      if (state.currentTab === 'events') renderEvents();
+    })
+    .catch(err => console.warn('Firestore events error', err));
 }
 
 // Called when a new suspect event is created \u2014 writes to Firestore so all devices see it
