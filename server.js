@@ -252,7 +252,7 @@ function currentRoundId(now = new Date()) {
 
 // ── Push delivery ─────────────────────────────────────────────────────────────
 
-function sendPush(payload, excludeEndpoint = null, ttl = 60) {
+function sendPush(payload, excludeEndpoint = null, ttl = 300) {
   const body = JSON.stringify({
     ...payload,
     icon: './pwa-icon-192.png',
@@ -260,29 +260,36 @@ function sendPush(payload, excludeEndpoint = null, ttl = 60) {
   });
   // urgency:high → bypass battery-saver queues on Android (FCM) and iOS (APNs)
   // ttl          → how long (seconds) the push service holds the message if the
-  //                device is offline. Possible bleeding = 60 s (fleeting alert).
-  //                Confirmed bleeding = 600 s (hold for up to 10 minutes).
+  //                device is offline. Default 300 s (5 min). Confirmed = 600 s.
   const pushOptions = { urgency: 'high', TTL: ttl };
+
+  const targets = subscriptions.filter((s) => s.endpoint !== excludeEndpoint);
+  console.log(`[push] Sending "${payload.title}" to ${targets.length} subscriber(s) (TTL=${ttl}s)`);
 
   const sends = subscriptions.map(async (subscription) => {
     if (subscription.endpoint === excludeEndpoint) return subscription;
     try {
       await webpush.sendNotification(subscription, body, pushOptions);
+      console.log(`[push] ✓ delivered to ${subscription.endpoint.slice(0, 60)}…`);
       return subscription;
     } catch (error) {
       const status = error.statusCode;
+      console.warn(`[push] ✗ delivery failed (HTTP ${status || '?'}): ${error.message || ''} → endpoint: ${subscription.endpoint.slice(0, 60)}…`);
       // 404/410 = endpoint gone; 401/403 = bad VAPID key / revoked → drop it
       if (status === 404 || status === 410 || status === 401 || status === 403) {
         removeSubscriptionFromFirestore(subscription.endpoint).catch(() => {});
         return null;
       }
-      console.warn('Push delivery failed:', status || error.message);
       return subscription;
     }
   });
 
   return Promise.all(sends).then((remaining) => {
-    subscriptions = remaining.filter(Boolean);
+    const kept = remaining.filter(Boolean);
+    if (kept.length !== subscriptions.length) {
+      console.log(`[push] Dropped ${subscriptions.length - kept.length} expired subscription(s). ${kept.length} remaining.`);
+    }
+    subscriptions = kept;
     writeJson(SUBSCRIPTIONS_FILE, subscriptions);
   });
 }
@@ -423,6 +430,21 @@ app.get('/api/health', (_req, res) => {
     subscribers: subscriptions.length,
     uptime: Math.floor(process.uptime()),
   });
+});
+
+// Test push — sends a real web push to all subscribers so you can verify
+// the full pipeline (server → push service → device → service worker) works.
+// Hit this from a browser or curl while the app is CLOSED on your device.
+app.post('/api/push/test', async (req, res) => {
+  if (subscriptions.length === 0) {
+    return res.json({ ok: false, message: 'No subscribers stored. Open the app, enable notifications, then try again.' });
+  }
+  await sendPush({
+    title: '🔔 Push Test',
+    body: `Test push sent at ${new Date().toLocaleTimeString()} to ${subscriptions.length} subscriber(s). If you see this with the app closed, push is working!`,
+    tag: `hidden-cloud-push-test-${Date.now()}`,
+  });
+  res.json({ ok: true, subscribers: subscriptions.length });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
