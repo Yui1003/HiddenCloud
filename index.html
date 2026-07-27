@@ -3466,7 +3466,10 @@ function toggleNotif() {
         state.settings.notificationsEnabled = true;
         saveToStorage();
         applySettings();
-        subscribeForPushNotifications().catch(e => console.warn('Push subscription error:', e));
+        subscribeForPushNotifications().catch(e => {
+          console.error('Push subscription error:', e);
+          window.alert('Background push notifications could not be set up on this device.\n\nError: ' + (e && e.message ? e.message : e) + '\n\nYou will still get notifications while this tab is open.');
+        });
         checkBleedingNotifications();
       }
     });
@@ -3489,7 +3492,7 @@ function showNotification(title, body, tag) {
     icon: './pwa-icon-192.png',
     badge: './pwa-icon-192.png',
     tag: tag || 'hidden-cloud-bleeding',
-    renotify: false,
+    renotify: true,
   };
   if (window.hcldServiceWorkerRegistration) {
     window.hcldServiceWorkerRegistration.showNotification(title, options).catch(() => {});
@@ -4982,7 +4985,7 @@ window._hcldInitTracker = function(userId, userName) {
   fetchData(false);
   startLivePolling();
   initFirebase();
-  syncPushSubscription().catch(e => console.warn('Push subscription sync error:', e));
+  syncPushSubscription().catch(e => console.error('Push subscription sync error:', e));
   setAccessLevel('normal');
 };
 
