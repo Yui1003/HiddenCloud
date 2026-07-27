@@ -4132,16 +4132,11 @@ function roundWindowLabel(startTsIso) {
 // ============================================================
 let db = null;
 
-function initFirebase() {
+async function initFirebase() {
   try {
-    const firebaseConfig = {
-      apiKey:            'AIzaSyBt1VtMUsUd_pVOG6sKbCJTHS2bka8kVpo',
-      authDomain:        'clantracker-22435.firebaseapp.com',
-      projectId:         'clantracker-22435',
-      storageBucket:     'clantracker-22435.firebasestorage.app',
-      messagingSenderId: '354867534107',
-      appId:             '1:354867534107:web:8452c807f24ef26dcedbbe',
-    };
+    const res = await fetch('/api/firebase-config');
+    if (!res.ok) throw new Error(`Firebase config fetch failed: HTTP ${res.status}`);
+    const firebaseConfig = await res.json();
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
     setFbStatus('connecting');

@@ -15,7 +15,8 @@ const DETECTOR_STATE_FILE = path.join(DATA_DIR, 'push-detector-state.json');
 const FIREBASE_TOKEN_FILE = path.join(DATA_DIR, 'firebase-token.json');
 
 // Firebase project config (same project the client already uses)
-const FIREBASE_API_KEY = 'AIzaSyBt1VtMUsUd_pVOG6sKbCJTHS2bka8kVpo';
+const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
+if (!FIREBASE_API_KEY) throw new Error('FIREBASE_API_KEY environment variable is not set.');
 const FIREBASE_PROJECT = 'clantracker-22435';
 const FIRESTORE_BASE =
   `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`;
@@ -435,6 +436,19 @@ app.get('/api/push/subscribers', (_req, res) => {
     return { index: i + 1, platform, endpoint: url.slice(0, 80) + '…' };
   });
   res.json({ total: subscriptions.length, subscribers: list });
+});
+
+// Firebase client config — serves web SDK config so the API key never appears in index.html
+app.get('/api/firebase-config', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    apiKey:            FIREBASE_API_KEY,
+    authDomain:        `${FIREBASE_PROJECT}.firebaseapp.com`,
+    projectId:         FIREBASE_PROJECT,
+    storageBucket:     `${FIREBASE_PROJECT}.firebasestorage.app`,
+    messagingSenderId: '354867534107',
+    appId:             '1:354867534107:web:8452c807f24ef26dcedbbe',
+  });
 });
 
 // Health check — used by UptimeRobot and for verifying the server is running
