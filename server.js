@@ -423,6 +423,20 @@ app.post('/api/push/confirmed', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Subscriber list — shows who is subscribed without sending anything
+app.get('/api/push/subscribers', (_req, res) => {
+  const list = subscriptions.map((s, i) => {
+    const url = s.endpoint || '';
+    let platform = 'Unknown';
+    if (url.includes('fcm.googleapis.com'))        platform = 'Android / Chrome';
+    else if (url.includes('web.push.apple.com'))   platform = 'iOS / Safari';
+    else if (url.includes('notify.windows.com'))   platform = 'Windows / Edge';
+    else if (url.includes('push.mozilla.com') || url.includes('updates.push.services.mozilla.com')) platform = 'Firefox';
+    return { index: i + 1, platform, endpoint: url.slice(0, 80) + '…' };
+  });
+  res.json({ total: subscriptions.length, subscribers: list });
+});
+
 // Health check — used by UptimeRobot and for verifying the server is running
 app.get('/api/health', (_req, res) => {
   res.json({
