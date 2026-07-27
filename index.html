@@ -92,6 +92,14 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .search-input:focus{border-color:var(--mauve)}
 .search-wrap{position:relative}
 .search-wrap svg{position:absolute;left:22px;top:50%;transform:translateY(-50%);color:var(--text3);pointer-events:none}
+/* PLAYER SEARCH RESULTS */
+.player-results-section{padding:0 12px;margin-bottom:4px}
+.player-results-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.08em;padding:2px 0 6px}
+.player-result-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:9px 12px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .15s;margin-bottom:5px}
+.player-result-card:hover{background:var(--bg3);border-color:var(--border2)}
+.player-result-name{font-weight:600;font-size:13px;flex:1;color:var(--text)}
+.player-result-clan{font-size:12px;color:var(--text2)}
+.player-result-gain{font-size:12px;color:var(--mauve);font-variant-numeric:tabular-nums;white-space:nowrap}
 /* YOUR CLAN BANNER */
 #your-clan-banner{margin:0 12px 8px;background:linear-gradient(135deg,#1c1800,#141414);border:1px solid var(--mauve);border-radius:12px;padding:10px 12px;cursor:pointer;transition:all .2s;display:none}
 #your-clan-banner.visible{display:block}
@@ -668,7 +676,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
       </div>
       <div class="search-wrap">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="search" class="search-input" id="search-input" placeholder="Search clans..." oninput="renderRankings()">
+        <input type="search" class="search-input" id="search-input" placeholder="Search clans or players..." oninput="renderRankings()">
       </div>
       <div id="rank-filter-bar" class="rank-filter-bar">
         <button class="rank-filter-btn active" onclick="setRankingsFilter('all',this)">All</button>
@@ -1965,6 +1973,21 @@ function renderRankings() {
     !query || c.name.toLowerCase().includes(query) || c.master.toLowerCase().includes(query)
   );
 
+  // Player search — scan every clan's member_list for name matches
+  let playerResults = [];
+  if (query) {
+    for (const clan of state.data.clans) {
+      for (const member of clan.member_list || []) {
+        if (member.name.toLowerCase().includes(query)) {
+          playerResults.push({ member, clan });
+        }
+      }
+    }
+    // Sort by weekly gain descending so top performers appear first
+    playerResults.sort((a, b) => (b.member.weekGain || 0) - (a.member.weekGain || 0));
+    if (playerResults.length > 20) playerResults = playerResults.slice(0, 20);
+  }
+
   // Apply status filter
   if (rankingsFilter === 'confirmed-bleed') {
     clans = clans.filter(c => !!confirmedBleeds[c.id]);
@@ -1983,17 +2006,37 @@ function renderRankings() {
     return a.rank - b.rank;
   });
 
-  if (clans.length === 0) {
+  if (clans.length === 0 && playerResults.length === 0) {
     const msg = rankingsFilter !== 'all'
       ? 'No clans currently match this filter.'
-      : 'No clans match your search.';
+      : 'No clans or players match your search.';
     list.innerHTML = `<div style="padding:30px;text-align:center;color:var(--text3)">${msg}</div>`;
     return;
   }
 
+  // Build player results section (shown above clan cards)
+  let playerHtml = '';
+  if (playerResults.length > 0) {
+    const label = playerResults.length === 20
+      ? 'Players <span style="font-weight:400">(top 20)</span>'
+      : `Players <span style="font-weight:400">(${playerResults.length})</span>`;
+    playerHtml = `<div class="player-results-section">
+      <div class="player-results-label">${label}</div>
+      ${playerResults.map(({ member, clan }) => {
+        const gain = member.weekGain || 0;
+        const gainStr = gain > 0 ? `+${fmtNum(gain)} this round` : '';
+        return `<div class="player-result-card" onclick="viewClan(${clan.id})">
+          <div class="player-result-name">${esc(member.name)}</div>
+          <div class="player-result-clan">#${clan.rank} ${esc(clan.name)}</div>
+          ${gainStr ? `<div class="player-result-gain">${gainStr}</div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
   const isLoggedIn = !!loggedInUserName;
 
-  list.innerHTML = clans.map(clan => {
+  list.innerHTML = playerHtml + clans.map(clan => {
     const isYours = clan.id === state.settings.yourClanId;
     const isConfirmedBleed = !!confirmedBleeds[clan.id];
     const status = isConfirmedBleed ? 'confirmed-bleed' : getClanRepStatus(clan.id);
@@ -3506,13 +3549,27 @@ async function subscribeForPushNotifications() {
     atob((publicKey + padding).replace(/-/g, '+').replace(/_/g, '/')),
     c => c.charCodeAt(0)
   );
+
+  // If the VAPID public key changed since the last subscription was created,
+  // the old subscription is tied to the wrong key and every push attempt
+  // will fail with 401. Force a clean re-subscribe in that case.
+  const storedKey = localStorage.getItem('hcld_vapid_key');
   let subscription = await registration.pushManager.getSubscription();
+  if (subscription && storedKey !== publicKey) {
+    await subscription.unsubscribe();
+    subscription = null;
+  }
+
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey,
     });
   }
+
+  // Remember which key this subscription was created with.
+  localStorage.setItem('hcld_vapid_key', publicKey);
+
   const response = await fetch('/api/push/subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -4982,20 +5039,31 @@ window.downloadSeasonReport         = downloadSeasonReport;
 
 <!-- ============================================================
      LOGIN GATE — runs after the IIFE so _hcldInitTracker exists
-     Uses sessionStorage: survives refresh, cleared when tab closes
+     Uses localStorage + 30-day expiry (Option C perpetual login).
+     On load with a saved session: boots immediately then re-verifies
+     clan membership in the background. If kicked from clan → clears
+     session and reloads. Network error → keeps the cached session.
      ============================================================ -->
 <script>
 (function () {
-  const CLAN_ID     = 777;
-  const API_URL     = 'https://static.ninjasaga.cc/data/clan_rankings.json';
-  const SESSION_KEY = 'hcld_session';
+  const CLAN_ID        = 777;
+  const API_URL        = 'https://static.ninjasaga.cc/data/clan_rankings.json';
+  const SESSION_KEY    = 'hcld_session';
+  const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
   /* ── session helpers ── */
   function readSession() {
-    try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch(_) { return null; }
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch(_) { return null; }
   }
   function writeSession(userId, userName) {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ userId: userId, userName: userName }));
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      userId:    userId,
+      userName:  userName,
+      loginTime: Date.now(),
+    }));
+  }
+  function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
   }
 
   /* ── UI helpers ── */
@@ -5052,11 +5120,45 @@ window.downloadSeasonReport         = downloadSeasonReport;
     }
   };
 
+  /* ── background membership re-verification ── */
+  // Called after booting with a cached session. Silently confirms the user
+  // is still a clan member. Kicks them out if removed; ignores network errors.
+  function verifySessionInBackground(userId, userName) {
+    fetch(API_URL, { cache: 'no-store' })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        var clan = (data.clans || []).find(function(c){ return c.id === CLAN_ID; });
+        var member = clan && (clan.member_list || []).find(function(m){ return m.id === userId; });
+        if (member) {
+          // Still a member — refresh the session timestamp and update name
+          writeSession(userId, member.name);
+        } else {
+          // No longer in the clan — clear session and reload to show login
+          clearSession();
+          location.reload();
+        }
+      })
+      .catch(function() {
+        // Network error — keep the cached session, try again next time
+      });
+  }
+
   /* ── on page load: resume session or show login ── */
   var session = readSession();
   if (session && session.userId && session.userName) {
-    // Valid session — skip login screen and boot immediately
-    window._hcldInitTracker(session.userId, session.userName);
+    var age = Date.now() - (session.loginTime || 0);
+    if (age > SESSION_TTL_MS) {
+      // Session older than 30 days — force a fresh login
+      clearSession();
+      setTimeout(function () {
+        var inp = document.getElementById('login-uid-input');
+        if (inp) inp.focus();
+      }, 80);
+    } else {
+      // Valid session — boot immediately, verify membership in the background
+      window._hcldInitTracker(session.userId, session.userName);
+      verifySessionInBackground(session.userId, session.userName);
+    }
   } else {
     // No session — login screen is visible (#app is display:none)
     setTimeout(function () {

@@ -252,16 +252,17 @@ function currentRoundId(now = new Date()) {
 
 // ── Push delivery ─────────────────────────────────────────────────────────────
 
-function sendPush(payload, excludeEndpoint = null) {
+function sendPush(payload, excludeEndpoint = null, ttl = 60) {
   const body = JSON.stringify({
     ...payload,
     icon: './pwa-icon-192.png',
     badge: './pwa-icon-192.png',
   });
   // urgency:high → bypass battery-saver queues on Android (FCM) and iOS (APNs)
-  // ttl:60       → stale bleeding alerts expire in 60 s instead of sitting in
-  //                the push queue and arriving long after the event is over
-  const pushOptions = { urgency: 'high', TTL: 60 };
+  // ttl          → how long (seconds) the push service holds the message if the
+  //                device is offline. Possible bleeding = 60 s (fleeting alert).
+  //                Confirmed bleeding = 600 s (hold for up to 10 minutes).
+  const pushOptions = { urgency: 'high', TTL: ttl };
 
   const sends = subscriptions.map(async (subscription) => {
     if (subscription.endpoint === excludeEndpoint) return subscription;
@@ -411,7 +412,7 @@ app.post('/api/push/confirmed', async (req, res) => {
     title: '🚨 Confirmed Bleeding',
     body: `The clan "${clanName}" is bleeding! Hurry up and attack!`,
     tag: `hidden-cloud-confirmed-bleeding-${eventKey}`,
-  }, typeof req.body?.excludeEndpoint === 'string' ? req.body.excludeEndpoint : null);
+  }, typeof req.body?.excludeEndpoint === 'string' ? req.body.excludeEndpoint : null, 600);
   res.json({ ok: true });
 });
 
