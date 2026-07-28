@@ -1144,6 +1144,14 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
       }).catch(function (error) {
         console.warn('PWA service worker registration failed:', error);
       });
+      // Lock to portrait so the tracker never rotates regardless of device
+      // rotation setting. screen.orientation.lock() works on Android Chrome
+      // (browser + installed PWA); iOS Safari ignores it silently.
+      if (screen.orientation && typeof screen.orientation.lock === 'function') {
+        screen.orientation.lock('portrait').catch(function () {
+          // Silently ignore — desktop browsers and iOS reject this call by design
+        });
+      }
     });
   }
 })();
