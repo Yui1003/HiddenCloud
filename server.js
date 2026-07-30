@@ -451,6 +451,57 @@ app.get('/api/firebase-config', (_req, res) => {
   });
 });
 
+// Discord bleed ping — proxied through the server so any logged-in member can
+// trigger it regardless of their Firestore client-side read permissions.
+// The webhook URL is fetched fresh from Firestore on every call so admin URL
+// updates take effect immediately without a server restart.
+app.post('/api/discord/bleed', async (req, res) => {
+  const { clanName, clanRank, clanRep, action, byUser, timeStr } = req.body || {};
+  if (!clanName || !action || !byUser) {
+    return res.status(400).json({ ok: false, error: 'Missing required fields.' });
+  }
+
+  // Fetch webhook URL from Firestore (server has full auth via Firebase token)
+  let webhookUrl = '';
+  try {
+    const snap = await firestoreRequest('GET', '/config/discordWebhook');
+    if (snap.ok) {
+      const doc = await snap.json();
+      webhookUrl = doc.fields?.url?.stringValue || '';
+    }
+  } catch (e) {
+    console.warn('Discord bleed: failed to read webhook URL from Firestore:', e.message);
+  }
+
+  if (!webhookUrl) {
+    return res.status(200).json({ ok: false, error: 'No Discord webhook URL configured.' });
+  }
+
+  let content;
+  if (action === 'marked') {
+    content = `\u{1FA78} **@everyone** \u2014 **${clanName}** is confirmed bleeding!\nReputation: **${clanRep}** | Rank: **#${clanRank}** | Marked by **${byUser}** | ${timeStr}\n\n\uD83D\uDC4D React to **confirm** \u00B7 \uD83D\uDC4E React for **false alarm**`;
+  } else {
+    content = `\u2705 **${clanName}** bleed has been cleared by **${byUser}** | ${timeStr}`;
+  }
+
+  try {
+    const discordRes = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!discordRes.ok) {
+      const text = await discordRes.text();
+      console.warn('Discord webhook returned', discordRes.status, text);
+      return res.status(200).json({ ok: false, error: `Discord returned ${discordRes.status}` });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.warn('Discord webhook fetch error:', e.message);
+    res.status(200).json({ ok: false, error: e.message });
+  }
+});
+
 // Health check — used by UptimeRobot and for verifying the server is running
 app.get('/api/health', (_req, res) => {
   res.json({
