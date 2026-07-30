@@ -3586,10 +3586,11 @@ async function subscribeForPushNotifications() {
   // Remember which key this subscription was created with.
   localStorage.setItem('hcld_vapid_key', publicKey);
 
+  const subData = subscription.toJSON ? subscription.toJSON() : JSON.parse(JSON.stringify(subscription));
   const response = await fetch('/api/push/subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(subscription),
+    body: JSON.stringify({ ...subData, userId: loggedInUserId }),
   });
   if (!response.ok) throw new Error('Could not save this device for push notifications.');
   pushSubscriptionActive = true;
@@ -3620,10 +3621,11 @@ async function syncPushSubscription() {
   const registration = window.hcldServiceWorkerRegistration || await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.getSubscription();
   if (subscription) {
+    const subData = subscription.toJSON ? subscription.toJSON() : JSON.parse(JSON.stringify(subscription));
     const response = await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(subscription),
+      body: JSON.stringify({ ...subData, userId: loggedInUserId }),
     });
     if (!response.ok) throw new Error('Could not re-sync this device for push notifications.');
     pushSubscriptionActive = true;
