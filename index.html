@@ -3329,24 +3329,24 @@ async function clearAllConfirmedBleeds() {
 }
 
 async function sendDiscordBleedPing(clan, action) {
-  const url = discordWebhookUrl;
-  if (!url) return;
-  const ts = new Date();
-  const timeStr = fmtHM(ts);
-  let content;
-  if (action === 'marked') {
-    content = `\u{1FA78} **@everyone** \u2014 **${clan.name}** is confirmed bleeding!\nReputation: **${fmtNum(clan.reputation)}** | Rank: **#${clan.rank}** | Marked by **${loggedInUserName}** | ${timeStr}\n\n\uD83D\uDC4D React to **confirm** \u00B7 \uD83D\uDC4E React for **false alarm**`;
-  } else {
-    content = `\u2705 **${clan.name}** bleed has been cleared by **${loggedInUserName}** | ${timeStr}`;
-  }
+  // Routed through the server so any logged-in member can trigger it —
+  // not just the admin who has the webhook URL in client memory.
+  const timeStr = fmtHM(new Date());
   try {
-    await fetch(url, {
+    await fetch('/api/discord/bleed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({
+        clanName: clan.name,
+        clanRank: clan.rank,
+        clanRep:  fmtNum(clan.reputation),
+        action,
+        byUser:   loggedInUserName,
+        timeStr,
+      }),
     });
   } catch(e) {
-    console.warn('Discord webhook error', e);
+    console.warn('Discord bleed ping error', e);
   }
 }
 
