@@ -7,6 +7,8 @@ const webpush = require('web-push');
 const PORT = Number(process.env.PORT || 5000);
 const API_URL = 'https://static.ninjasaga.cc/data/clan_rankings.json';
 const POLL_INTERVAL_MS = 2000;
+const MEMBERSHIP_PURGE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const HIDDEN_CLOUD_CLAN_ID = 777;
 const POSSIBLE_BLEEDING_CLAN_THRESHOLD = 2;
 const POSSIBLE_BLEEDING_DELAY_MS = 10000;
 const DATA_DIR = process.env.PUSH_DATA_DIR || path.join(__dirname, '.data');
@@ -148,6 +150,7 @@ function toFirestoreDoc(sub) {
       p256dh:         { stringValue: sub.keys?.p256dh || '' },
       auth:           { stringValue: sub.keys?.auth || '' },
       expirationTime: { stringValue: sub.expirationTime ? String(sub.expirationTime) : '' },
+      userId:         { stringValue: sub.userId ? String(sub.userId) : '' },
     },
   };
 }
@@ -163,6 +166,7 @@ function fromFirestoreDoc(doc) {
     endpoint,
     keys: { p256dh, auth },
     expirationTime: f.expirationTime?.stringValue || null,
+    userId:         f.userId?.stringValue || null,
   };
 }
 
@@ -343,11 +347,49 @@ function recordGainEvents(json) {
   return [...bleedingClanIds].map((id) => current.get(id)).filter(Boolean);
 }
 
+// ── Membership purge ──────────────────────────────────────────────────────────
+// Runs every 5 minutes during the poll loop. Removes push subscriptions whose
+// userId is no longer in the Hidden Cloud Village member list. Subscriptions
+// with no userId (legacy / anonymous) are left untouched.
+let lastMembershipPurge = 0;
+
+async function purgeExMemberSubscriptions(json) {
+  const hcClan = (json.clans || []).find((c) => c.id === HIDDEN_CLOUD_CLAN_ID);
+  if (!hcClan) return; // can't verify — skip this cycle
+  const memberIds = new Set((hcClan.member_list || []).map((m) => String(m.id)));
+
+  const before = subscriptions.length;
+  const removed = [];
+  subscriptions = subscriptions.filter((sub) => {
+    if (!sub.userId) return true; // no userId → keep (legacy subscription)
+    if (memberIds.has(String(sub.userId))) return true; // still a member → keep
+    removed.push(sub);
+    return false;
+  });
+
+  if (removed.length > 0) {
+    console.log(`[membership] Removed ${removed.length} subscription(s) for ex-member(s): ${removed.map((s) => s.userId).join(', ')}`);
+    writeJson(SUBSCRIPTIONS_FILE, subscriptions);
+    for (const sub of removed) {
+      removeSubscriptionFromFirestore(sub.endpoint).catch(() => {});
+    }
+  } else {
+    console.log(`[membership] Purge check complete — all ${before} subscription(s) are current members.`);
+  }
+  lastMembershipPurge = Date.now();
+}
+
 async function pollForPossibleBleeding() {
   try {
     const response = await fetch(API_URL, { cache: 'no-store' });
     if (!response.ok) throw new Error(`rankings HTTP ${response.status}`);
     const json = await response.json();
+
+    // Periodic membership purge — runs every 5 minutes
+    if (Date.now() - lastMembershipPurge >= MEMBERSHIP_PURGE_INTERVAL_MS) {
+      purgeExMemberSubscriptions(json).catch((e) => console.warn('[membership] Purge error:', e.message));
+    }
+
     const roundId = currentRoundId();
     if (detectorState.roundId !== roundId) {
       detectorState.roundId = roundId;
