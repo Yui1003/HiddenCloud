@@ -725,23 +725,44 @@ function fsRestVal(v) {
 
 // Fallback: reads confirmedBleeds from Firestore once every 30 s, ensuring
 // any client that connects after a state change sees the latest data.
+//
+// IMPORTANT: this must never *blindly replace* serverConfirmedBleeds. A single
+// incomplete/partial read (pagination truncation, a security-rule-restricted
+// row, a transient Firestore hiccup) would otherwise wipe an active bleed mark
+// for every connected client even though nobody unmarked it and the round
+// hasn't ended. So we only ever ADD/UPDATE from what we positively read, and
+// we only REMOVE an id when the fetched doc for that id explicitly says
+// active:false — never because an id was merely absent from this page.
 async function fetchConfirmedBleeds() {
   try {
-    const res = await firestoreRequest('GET', '/confirmedBleeds?pageSize=200');
-    if (!res.ok) return;
-    const data = await res.json();
-    const newState = {};
-    for (const doc of (data.documents || [])) {
+    const docs = [];
+    let pageToken = null;
+    do {
+      const qs = 'pageSize=200' + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+      const res = await firestoreRequest('GET', `/confirmedBleeds?${qs}`);
+      if (!res.ok) return; // leave serverConfirmedBleeds untouched on any read failure
+      const data = await res.json();
+      docs.push(...(data.documents || []));
+      pageToken = data.nextPageToken || null;
+    } while (pageToken);
+
+    const next = { ...serverConfirmedBleeds };
+    for (const doc of docs) {
       const f = doc.fields || {};
+      const id = Number(doc.name.split('/').pop());
+      const entry = {};
+      for (const [k, v] of Object.entries(f)) entry[k] = fsRestVal(v);
       if (fsRestVal(f.active)) {
-        const id = Number(doc.name.split('/').pop());
-        const entry = {};
-        for (const [k, v] of Object.entries(f)) entry[k] = fsRestVal(v);
-        newState[id] = entry;
+        next[id] = entry;       // confirmed active → add/refresh
+      } else {
+        delete next[id];        // confirmed inactive → remove
       }
+      // Any id NOT present in `docs` at all is left exactly as-is in `next`;
+      // we never infer "cleared" from mere absence in a single poll page.
     }
-    const changed = JSON.stringify(newState) !== JSON.stringify(serverConfirmedBleeds);
-    if (changed) { serverConfirmedBleeds = newState; broadcastBleeds(); }
+
+    const changed = JSON.stringify(next) !== JSON.stringify(serverConfirmedBleeds);
+    if (changed) { serverConfirmedBleeds = next; broadcastBleeds(); }
   } catch (e) {
     console.warn('[bleeds] Firestore fallback poll error:', e.message);
   }
