@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hidden-cloud-pwa-v3';
+const CACHE_NAME = 'hidden-cloud-pwa-v4';
 const APP_SHELL = [
   './',
   './index.html',
