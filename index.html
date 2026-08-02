@@ -1498,8 +1498,10 @@ function finalizeRound(round, dataAtEnd) {
     return { clanId: clan.id, name: clan.name, rank: clan.rank, startRep, endRep: clan.reputation, gain: clan.reputation - startRep };
   }).sort((a, b) => b.gain - a.gain);
 
-  state.roundHistory.push({ id: round.id, startTs: round.startTs, endTs: new Date().toISOString(), clans });
+  const roundEntry = { id: round.id, startTs: round.startTs, endTs: new Date().toISOString(), clans };
+  state.roundHistory.push(roundEntry);
   if (state.roundHistory.length > 100) state.roundHistory.shift();
+  pushRoundToFirestore(roundEntry);
 }
 
 // Reputation gained by a clan so far in the current (in-progress) round.
@@ -3367,6 +3369,7 @@ async function markClanBleed(clanId) {
   const logEntry = { clanId, clanName: clan.name, action: 'marked', by: loggedInUserName, ts };
   await db.collection('bleedEventLog').add(logEntry)
     .catch(e => console.warn('bleedEventLog write error', e));
+  bumpLastWrite();
 
   notifyConfirmedBleeding(clan.name, `${clanId}:${ts}`);
   fetch(PUSH_CONFIRMED_URL, {
@@ -3420,6 +3423,7 @@ async function confirmUnmarkBleed() {
   const logEntry = { clanId, clanName, action: 'cleared', by: loggedInUserName, ts };
   await db.collection('bleedEventLog').add(logEntry)
     .catch(e => console.warn('bleedEventLog write error', e));
+  bumpLastWrite();
 
   // Discord follow-up ping
   if (clan) sendDiscordBleedPing(clan, 'cleared');
@@ -4303,29 +4307,40 @@ function setFbStatus(state) {
            : 'Firebase disconnected';
 }
 
-function initFirestoreListeners() {
+async function initFirestoreListeners() {
   if (!db) return;
 
-  // ── Cache-aware loading ───────────────────────────────────────────────────
-  // When localStorage data is < 30 min old we skip the expensive historical
-  // .get() queries and only open live-tail listeners from the last sync point.
-  // This is the primary lever for reducing Firestore reads.
   const now = Date.now();
-  const CACHE_TTL_MS = 30 * 60_000; // 30 minutes
   const lastSync = state.lastFirestoreSync || 0;
-  const hasFreshCache = lastSync > 0 && (now - lastSync) < CACHE_TTL_MS;
-  // Live listeners start from here (overlap window handles clock-skew)
-  const liveFrom = hasFreshCache ? (lastSync - 5000) : (now - 5000);
 
-  if (hasFreshCache) {
-    // Data already in localStorage — render immediately, listeners will catch up
+  // Always render from localStorage immediately so the UI isn't blank while
+  // we wait for the meta check round-trip.
+  setFbStatus('connecting');
+  updateSuspectsTabBadge();
+  if (state.currentTab === 'suspects')   renderSuspects();
+  if (state.currentTab === 'deductions') renderDeductions();
+  if (state.currentTab === 'history')    renderHistory();
+  if (state.currentTab === 'bleed')      renderBleeding();
+
+  // ── Change-aware loading ───────────────────────────────────────────────────
+  // Read meta/lastWrite (1 cheap document read per session) to find out if any
+  // device has written new data since our last sync. We only do the expensive
+  // historical .get() queries when something actually changed — not on a timer.
+  let serverLastWrite = 0;
+  try {
+    const metaSnap = await db.collection('meta').doc('lastWrite').get();
+    if (metaSnap.exists) serverLastWrite = metaSnap.data().ts || 0;
     setFbStatus('connected');
-    updateSuspectsTabBadge();
-    if (state.currentTab === 'suspects')   renderSuspects();
-    if (state.currentTab === 'deductions') renderDeductions();
-    if (state.currentTab === 'history')    renderHistory();
-    if (state.currentTab === 'bleed')      renderBleeding();
+  } catch (e) {
+    console.warn('Firestore meta read error', e);
+    setFbStatus('error');
   }
+
+  // hasFreshCache = true  → our local data is up to date; open live-tail only.
+  // hasFreshCache = false → new data exists (or first visit); do full .get().
+  const hasFreshCache = lastSync > 0 && lastSync >= serverLastWrite;
+  // Live listeners start from here (5 s overlap handles clock-skew)
+  const liveFrom = hasFreshCache ? (lastSync - 5000) : (now - 5000);
 
   // ── Suspect log ──────────────────────────────────────────────────────────
   function setupSuspectLiveTail(fromTs) {
@@ -4535,6 +4550,56 @@ function initFirestoreListeners() {
       .catch(err => console.warn('Firestore bleedEventLog error', err));
   }
 
+  // ── Round history ─────────────────────────────────────────────────────────
+  // Written by whichever client is open when a round finalizes; fetched here so
+  // devices that were offline during a round still see full history when they open.
+  function setupRoundHistoryLiveTail(fromTs) {
+    db.collection('roundHistory')
+      .where('endTs', '>=', new Date(fromTs).toISOString())
+      .onSnapshot(liveSnap => {
+        let added = 0;
+        liveSnap.docChanges().forEach(change => {
+          if (change.type === 'added') {
+            const entry = change.doc.data();
+            if (!state.roundHistory.some(r => r.id === entry.id)) {
+              state.roundHistory.push(entry);
+              added++;
+            }
+          }
+        });
+        if (added > 0) {
+          state.roundHistory.sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
+          if (state.roundHistory.length > 100) state.roundHistory = state.roundHistory.slice(-100);
+          saveToStorage();
+          if (state.currentTab === 'history') renderHistory();
+        }
+      }, err => console.warn('Firestore roundHistory live error', err));
+  }
+
+  if (hasFreshCache) {
+    setupRoundHistoryLiveTail(liveFrom);
+  } else {
+    // Fetch last 96 rounds (~48 hours worth) so everyone sees recent history
+    db.collection('roundHistory')
+      .orderBy('endTs', 'desc')
+      .limit(96)
+      .get()
+      .then(snap => {
+        snap.forEach(doc => {
+          const entry = doc.data();
+          if (!state.roundHistory.some(r => r.id === entry.id)) {
+            state.roundHistory.push(entry);
+          }
+        });
+        state.roundHistory.sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
+        if (state.roundHistory.length > 100) state.roundHistory = state.roundHistory.slice(-100);
+        saveToStorage();
+        if (state.currentTab === 'history') renderHistory();
+        setupRoundHistoryLiveTail(now - 5000);
+      })
+      .catch(err => console.warn('Firestore roundHistory error', err));
+  }
+
   // ── Discord webhook URL: one-time read per session (only changes on admin action)
   if (!hasFreshCache) {
     db.collection('config').doc('discordWebhook')
@@ -4628,11 +4693,27 @@ function loadEventsFromFirestore(force) {
     .catch(err => console.warn('Firestore events error', err));
 }
 
+// Bumps meta/lastWrite so other devices know new data is available (1 small write).
+function bumpLastWrite() {
+  if (!db) return;
+  db.collection('meta').doc('lastWrite').set({ ts: Date.now() })
+    .catch(e => console.warn('Firestore meta write error', e));
+}
+
+// Called when a round finalizes — writes to Firestore so offline devices see it on next open
+function pushRoundToFirestore(entry) {
+  if (!db) return;
+  db.collection('roundHistory').doc(entry.id).set(entry)
+    .catch(e => console.warn('Firestore roundHistory write error', e));
+  bumpLastWrite();
+}
+
 // Called when a new suspect event is created \u2014 writes to Firestore so all devices see it
 function pushSuspectToFirestore(entry) {
   if (!db) return;
   db.collection('suspectLog').doc(entry.dedupKey).set(entry)
     .catch(e => console.warn('Firestore suspect write error', e));
+  bumpLastWrite();
 }
 
 // Called when a new deduction entry is created \u2014 writes to Firestore so all devices see it
@@ -4642,6 +4723,7 @@ function pushDeductionToFirestore(entry) {
   const { members, ...core } = entry;
   db.collection('deductionLog').doc(`${entry.clanId}_${entry.ts}`).set(core)
     .catch(e => console.warn('Firestore deduction write error', e));
+  bumpLastWrite();
 }
 
 // ============================================================
