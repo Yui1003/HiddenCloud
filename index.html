@@ -409,6 +409,16 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .suspect-hist-member:last-child{border-bottom:none}
 /* ACCUMULATED CHEAT HISTORY (detail view) */
 .detail-cheat-section-header{padding:10px 12px 4px;font-size:10px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:0.8px;border-top:1px solid var(--border);margin-top:4px}
+.collapsible-date-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 12px 5px;cursor:pointer;user-select:none;border-bottom:1px solid rgba(255,255,255,0.04)}
+.collapsible-date-hdr:hover{background:rgba(255,255,255,0.025)}
+.collapsible-date-label{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.8px}
+.collapsible-date-meta{font-size:10px;color:var(--text3)}
+.collapsible-chevron{font-size:9px;color:var(--text3);transition:transform .2s;display:inline-block}
+.collapsible-chevron.open{transform:rotate(90deg)}
+.collapsible-clan-hdr{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;margin:5px 12px 3px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer;user-select:none;gap:8px}
+.collapsible-clan-hdr:hover{border-color:var(--border2)}
+.collapsible-clan-hdr-name{font-size:12px;font-weight:700;color:var(--text)}
+.collapsible-clan-hdr-meta{font-size:10px;color:var(--text3);margin-top:1px}
 .member-cheat-row{background:var(--card);border:1px solid rgba(250,179,135,0.3);border-radius:8px;padding:7px 12px;margin:0 12px 5px}
 .mch-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .mch-name{font-size:13px;font-weight:600;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2721,51 +2731,77 @@ function renderSuspects() {
     <span style="color:var(--red);font-weight:700">${log.length} HIGH</span> confirmed suspect${log.length !== 1 ? 's' : ''} \u2014 rep drop caught live and aligned exactly with clan deduction change
   </div>`;
 
-  // Group by date
-  const groups = [];
-  let lastDate = null;
+  // Group by date → clan
+  const dateMap = new Map();
   for (const e of log) {
-    const d = new Date(e.ts);
-    const dateLabel = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    if (dateLabel !== lastDate) { groups.push({ date: dateLabel, entries: [] }); lastDate = dateLabel; }
-    groups[groups.length - 1].entries.push(e);
+    const dateLabel = new Date(e.ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    if (!dateMap.has(dateLabel)) dateMap.set(dateLabel, new Map());
+    const clanMap = dateMap.get(dateLabel);
+    if (!clanMap.has(e.clanId)) clanMap.set(e.clanId, { clanName: e.clanName, clanRank: e.clanRank, clanDeduction: e.clanDeduction, entries: [] });
+    clanMap.get(e.clanId).entries.push(e);
   }
 
-  for (const grp of groups) {
-    html += `<div class="ded-date-header">${esc(grp.date)}</div>`;
-    for (const e of grp.entries) {
-      const srcTag   = `<span style="font-size:9px;color:#a6e3a1;background:rgba(166,227,161,0.12);border:1px solid rgba(166,227,161,0.3);padding:1px 5px;border-radius:5px">\u{1F7E2} Live</span>`;
-      const dropLine = e.dropAmount > 0
-        ? `<span style="color:var(--red);font-size:10px;margin-left:4px">\u2212${fmtNum(e.dropAmount)}${e.dropCount > 1 ? ` (${e.dropCount}\u00D7)` : ''}</span>` : '';
-      const detectedAt = e.dropTs
-        ? new Date(e.dropTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-        : new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      html += `<div class="suspect-hist-card">
+  let di = 0;
+  for (const [dateLabel, clanMap] of dateMap) {
+    const totalSuspects = [...clanMap.values()].reduce((n, c) => n + c.entries.length, 0);
+    const isFirstDate = di === 0;
+    const dateSectionId = `susp-date-body-${di}`;
+    const dateChevrId   = `susp-date-chev-${di}`;
+    html += `<div class="collapsible-date-hdr" onclick="toggleSection('${dateSectionId}','${dateChevrId}')">
+      <span class="collapsible-date-label">${esc(dateLabel)}</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <span class="collapsible-date-meta">${clanMap.size} clan${clanMap.size !== 1 ? 's' : ''} &middot; ${totalSuspects} suspect${totalSuspects !== 1 ? 's' : ''}</span>
+        <span class="collapsible-chevron${isFirstDate ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
+      </span>
+    </div>
+    <div id="${dateSectionId}"${isFirstDate ? '' : ' style="display:none"'}>`;
+
+    let ci = 0;
+    for (const [clanId, clan] of clanMap) {
+      const clanBodyId  = `susp-clan-body-${di}-${ci}`;
+      const clanChevrId = `susp-clan-chev-${di}-${ci}`;
+      const firstClan   = isFirstDate && ci === 0;
+      html += `<div class="collapsible-clan-hdr" onclick="toggleSection('${clanBodyId}','${clanChevrId}')">
+        <div style="flex:1;min-width:0">
+          <div class="collapsible-clan-hdr-name">${esc(clan.clanName)} <span style="font-size:10px;color:var(--text3);font-weight:400">#${clan.clanRank}</span></div>
+          <div class="collapsible-clan-hdr-meta">Deduction: <span style="color:var(--red);font-weight:700">-${fmtNum(clan.clanDeduction)}</span> &middot; ${clan.entries.length} suspect${clan.entries.length !== 1 ? 's' : ''}</div>
+        </div>
+        <span class="collapsible-chevron${firstClan ? ' open' : ''}" id="${clanChevrId}">&#9658;</span>
+      </div>
+      <div id="${clanBodyId}"${firstClan ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
+
+      for (const e of clan.entries) {
+        const srcTag   = `<span style="font-size:9px;color:#a6e3a1;background:rgba(166,227,161,0.12);border:1px solid rgba(166,227,161,0.3);padding:1px 5px;border-radius:5px">\u{1F7E2} Live</span>`;
+        const dropLine = e.dropAmount > 0
+          ? `<span style="color:var(--red);font-size:10px;margin-left:4px">\u2212${fmtNum(e.dropAmount)}${e.dropCount > 1 ? ` (${e.dropCount}\u00D7)` : ''}</span>` : '';
+        const detectedAt = e.dropTs
+          ? new Date(e.dropTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        html += `<div class="suspect-hist-card" style="margin-bottom:5px">
           <div class="suspect-hist-top">
             <div style="flex:1;min-width:0">
-              <div class="suspect-hist-clan">${esc(e.clanName)} <span style="font-size:11px;color:var(--text3)">#${e.clanRank}</span></div>
-              <div style="font-size:10px;color:var(--text3);margin-top:2px">
-                Clan deduction at event: <span style="color:var(--red);font-weight:700">-${fmtNum(e.clanDeduction)}</span>
-                &nbsp;\u00B7&nbsp; ${srcTag}
-              </div>
-            </div>
-            <div class="suspect-hist-ts" style="flex-shrink:0;margin-left:8px">
-              <div style="font-size:11px;font-weight:600;color:var(--text2)">${detectedAt}</div>
-              <div style="font-size:10px;color:var(--text3);margin-top:1px">${fmtAgo(e.ts)}</div>
-            </div>
-          </div>
-          <div class="suspect-hist-member">
-            <div class="sm-icon">\u{1F6A8}</div>
-            <div class="sm-info">
-              <div class="sm-name">${esc(e.memberName)}
-                <span style="font-size:10px;color:var(--text3)">Lv ${e.memberLevel} \u00B7 Rep ${fmtNum(e.memberRep)}${dropLine}</span>
-              </div>
-              <div class="sm-reason">${esc(e.reason)}</div>
+              <div style="font-size:10px;color:var(--text3)">${srcTag}&nbsp; ${detectedAt} &middot; ${fmtAgo(e.ts)}</div>
             </div>
             <div class="sm-badge"><span class="badge badge-suspect-high" style="font-size:9px">HIGH</span></div>
           </div>
+          <div class="suspect-hist-member" style="margin-top:5px;border-bottom:none">
+            <div class="sm-icon">\u{1F6A8}</div>
+            <div class="sm-info">
+              <div class="sm-name">${esc(e.memberName)}
+                <span style="font-size:10px;color:var(--text3)">Lv ${e.memberLevel} &middot; Rep ${fmtNum(e.memberRep)}${dropLine}</span>
+              </div>
+              <div class="sm-reason">${esc(e.reason)}</div>
+            </div>
+          </div>
         </div>`;
+      }
+
+      html += `</div>`; // end clan body
+      ci++;
     }
+
+    html += `</div>`; // end date body
+    di++;
   }
 
   container.innerHTML = html;
@@ -2793,6 +2829,15 @@ function setDedFilter(clanId, btn) {
 function setSuspectFilter(filter, btn) {
   suspectFilter = filter;
   renderSuspects();
+}
+
+function toggleSection(bodyId, chevronId) {
+  const el = document.getElementById(bodyId);
+  if (!el) return;
+  const opening = el.style.display === 'none';
+  el.style.display = opening ? '' : 'none';
+  const ch = document.getElementById(chevronId);
+  if (ch) ch.classList.toggle('open', opening);
 }
 
 function renderDeductions() {
@@ -2906,68 +2951,103 @@ function renderDeductions() {
     return;
   }
 
-  // Group by date
-  const groups = [];
-  let lastDate = null;
+  // Group by date → clan
+  const dateMap = new Map();
   for (const entry of filtered) {
-    const d = new Date(entry.ts);
-    const dateLabel = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    if (dateLabel !== lastDate) { groups.push({ date: dateLabel, entries: [] }); lastDate = dateLabel; }
-    groups[groups.length - 1].entries.push(entry);
+    const dateLabel = new Date(entry.ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    if (!dateMap.has(dateLabel)) dateMap.set(dateLabel, new Map());
+    const clanMap = dateMap.get(dateLabel);
+    if (!clanMap.has(entry.clanId)) clanMap.set(entry.clanId, { clanName: entry.clanName, clanRank: entry.clanRank, entries: [] });
+    clanMap.get(entry.clanId).entries.push(entry);
   }
 
   const nowMs = Date.now();
   html += `<div style="padding:0 12px 4px;font-size:11px;color:var(--text3)">${filtered.length} event${filtered.length !== 1 ? 's' : ''} recorded</div>`;
 
-  for (const group of groups) {
-    html += `<div class="ded-date-header">${esc(group.date)}</div>`;
-    for (const e of group.entries) {
-      const d = new Date(e.ts);
-      const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      const secAgo = Math.floor((nowMs - e.ts) / 1000);
-      const agoStr = secAgo < 60 ? `${secAgo}s ago` : secAgo < 3600 ? `${Math.floor(secAgo/60)}m ago` : `${Math.floor(secAgo/3600)}h ago`;
-      const changeSign = e.change >= 0 ? '+' : '';
-      const changeColor = e.change > 0 ? 'var(--red)' : 'var(--green)';
-      const isNew = secAgo < 30;
+  let di = 0;
+  for (const [dateLabel, clanMap] of dateMap) {
+    const totalEvents = [...clanMap.values()].reduce((n, c) => n + c.entries.length, 0);
+    const isFirstDate = di === 0;
+    const dateSectionId = `ded-date-body-${di}`;
+    const dateChevrId   = `ded-date-chev-${di}`;
+    html += `<div class="collapsible-date-hdr" onclick="toggleSection('${dateSectionId}','${dateChevrId}')">
+      <span class="collapsible-date-label">${esc(dateLabel)}</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <span class="collapsible-date-meta">${clanMap.size} clan${clanMap.size !== 1 ? 's' : ''} &middot; ${totalEvents} event${totalEvents !== 1 ? 's' : ''}</span>
+        <span class="collapsible-chevron${isFirstDate ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
+      </span>
+    </div>
+    <div id="${dateSectionId}"${isFirstDate ? '' : ' style="display:none"'}>`;
 
-      const membersHtml = (e.members && e.members.length > 0)
-        ? `<div class="ded-members">
-            ${e.members.map(m => {
-              const icon = '\u{1F6A8}';
-              const badgeCls = 'badge-suspect-high';
-              const dropLine = m.dropAmount > 0
-                ? ` <span style="color:var(--red);font-size:9px">\u2212${fmtNum(m.dropAmount)}${m.dropCount > 1 ? ` (${m.dropCount}\u00D7)` : ''}</span>`
-                : '';
-              return `<div class="ded-member-row">
-                <div class="ded-member-icon">${icon}</div>
-                <div class="ded-member-info">
-                  <div class="ded-member-name">${esc(m.name)} <span style="font-size:10px;color:var(--text3)">Lv ${m.level} \u00B7 Rep ${fmtNum(m.reputation)}${dropLine}</span></div>
-                  <div class="ded-member-reason">${esc(m.reason)}</div>
-                </div>
-                <div class="ded-member-badge"><span class="badge badge-suspect-high" style="font-size:9px">HIGH</span></div>
-              </div>`;
-            }).join('')}
-          </div>`
-        : '';
+    let ci = 0;
+    for (const [clanId, clan] of clanMap) {
+      const clanBodyId  = `ded-clan-body-${di}-${ci}`;
+      const clanChevrId = `ded-clan-chev-${di}-${ci}`;
+      const firstClan   = isFirstDate && ci === 0;
+      const latestEntry = clan.entries[0];
+      const changeSign  = latestEntry.change >= 0 ? '+' : '';
+      const changeColor = latestEntry.change > 0 ? 'var(--red)' : 'var(--green)';
 
-      html += `<div class="ded-entry${isNew ? ' new' : ''}" onclick="viewClan(${e.clanId})">
-        <div class="ded-top-row">
-          <div class="ded-time">
-            <div style="font-size:12px;font-weight:600;color:var(--text2)">${esc(timeStr)}</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:1px">${esc(agoStr)}</div>
-          </div>
-          <div class="ded-clan">
-            <div class="ded-clan-name">${esc(e.clanName)}</div>
-            <div class="ded-clan-rank">Rank #${e.clanRank} \u00B7 ${fmtNum(e.prevDeduction)} \u2192 ${fmtNum(e.deduction)}</div>
-          </div>
-          <div class="ded-amounts">
-            <div class="ded-total">-${fmtNum(e.deduction)}</div>
-            <div class="ded-change" style="color:${changeColor}">${changeSign}${fmtNum(e.change)}</div>
-          </div>
+      html += `<div class="collapsible-clan-hdr" onclick="toggleSection('${clanBodyId}','${clanChevrId}')">
+        <div style="flex:1;min-width:0">
+          <div class="collapsible-clan-hdr-name">${esc(clan.clanName)} <span style="font-size:10px;color:var(--text3);font-weight:400">#${clan.clanRank}</span></div>
+          <div class="collapsible-clan-hdr-meta">Deduction: <span style="color:var(--red);font-weight:700">-${fmtNum(latestEntry.deduction)}</span> &middot; latest change: <span style="color:${changeColor};font-weight:700">${changeSign}${fmtNum(latestEntry.change)}</span> &middot; ${clan.entries.length} event${clan.entries.length !== 1 ? 's' : ''}</div>
         </div>
-        ${membersHtml}
-      </div>`;
+        <span class="collapsible-chevron${firstClan ? ' open' : ''}" id="${clanChevrId}">&#9658;</span>
+      </div>
+      <div id="${clanBodyId}"${firstClan ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
+
+      for (const e of clan.entries) {
+        const d = new Date(e.ts);
+        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const secAgo = Math.floor((nowMs - e.ts) / 1000);
+        const agoStr = secAgo < 60 ? `${secAgo}s ago` : secAgo < 3600 ? `${Math.floor(secAgo/60)}m ago` : `${Math.floor(secAgo/3600)}h ago`;
+        const eChangeSign  = e.change >= 0 ? '+' : '';
+        const eChangeColor = e.change > 0 ? 'var(--red)' : 'var(--green)';
+        const isNew = secAgo < 30;
+
+        const membersHtml = (e.members && e.members.length > 0)
+          ? `<div class="ded-members">
+              ${e.members.map(m => {
+                const dropLine = m.dropAmount > 0
+                  ? ` <span style="color:var(--red);font-size:9px">\u2212${fmtNum(m.dropAmount)}${m.dropCount > 1 ? ` (${m.dropCount}\u00D7)` : ''}</span>`
+                  : '';
+                return `<div class="ded-member-row">
+                  <div class="ded-member-icon">\u{1F6A8}</div>
+                  <div class="ded-member-info">
+                    <div class="ded-member-name">${esc(m.name)} <span style="font-size:10px;color:var(--text3)">Lv ${m.level} \u00B7 Rep ${fmtNum(m.reputation)}${dropLine}</span></div>
+                    <div class="ded-member-reason">${esc(m.reason)}</div>
+                  </div>
+                  <div class="ded-member-badge"><span class="badge badge-suspect-high" style="font-size:9px">HIGH</span></div>
+                </div>`;
+              }).join('')}
+            </div>`
+          : '';
+
+        html += `<div class="ded-entry${isNew ? ' new' : ''}" onclick="viewClan(${e.clanId})">
+          <div class="ded-top-row">
+            <div class="ded-time">
+              <div style="font-size:12px;font-weight:600;color:var(--text2)">${esc(timeStr)}</div>
+              <div style="font-size:10px;color:var(--text3);margin-top:1px">${esc(agoStr)}</div>
+            </div>
+            <div class="ded-clan">
+              <div class="ded-clan-rank">${fmtNum(e.prevDeduction)} \u2192 ${fmtNum(e.deduction)}</div>
+            </div>
+            <div class="ded-amounts">
+              <div class="ded-total">-${fmtNum(e.deduction)}</div>
+              <div class="ded-change" style="color:${eChangeColor}">${eChangeSign}${fmtNum(e.change)}</div>
+            </div>
+          </div>
+          ${membersHtml}
+        </div>`;
+      }
+
+      html += `</div>`; // end clan body
+      ci++;
     }
+
+    html += `</div>`; // end date body
+    di++;
   }
 
   container.innerHTML = html;
@@ -5183,6 +5263,7 @@ window.confirmDeleteFirebaseRecords = confirmDeleteFirebaseRecords;
 window.showAdminAccessModal         = showAdminAccessModal;
 window.exitAdminLevel               = exitAdminLevel;
 window.setSuspectFilter             = setSuspectFilter;
+window.toggleSection                = toggleSection;
 window.showTab                      = showTab;
 window.closeModal                   = closeModal;
 window.closePwModal                 = closePwModal;
