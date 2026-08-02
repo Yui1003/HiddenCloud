@@ -1485,8 +1485,12 @@ function updateRoundTracking() {
   // just ended \u2014 it's the closest thing we have to "reputation at HH:30".
   finalizeRound(state.round, state.prevData || state.data);
   state.round = { id: roundId, startTs: roundStart.toISOString(), startSnap: repSnapshot(state.data) };
-  // Auto-clear all active confirmed bleeds when a new round starts
-  clearAllConfirmedBleeds();
+  // Auto-clear confirmed bleeds left over from the round that just ended.
+  // Only clear entries whose roundId is NOT the round we just entered — a
+  // client that wakes up late (backgrounded tab, sleeping device, etc.) can
+  // otherwise wipe marks other users already made in the round that's
+  // already in progress by the time this client catches up.
+  clearAllConfirmedBleeds(roundId);
   return true;
 }
 
@@ -3429,11 +3433,15 @@ async function confirmUnmarkBleed() {
   if (clan) sendDiscordBleedPing(clan, 'cleared');
 }
 
-// Called when a new round starts — clears all active confirmed bleeds in Firebase
-// so each round starts fresh and users can re-mark bleeding clans as needed.
-async function clearAllConfirmedBleeds() {
+// Called when a new round starts — clears confirmed bleeds left over from the
+// PREVIOUS round in Firebase so each round starts fresh. Entries whose
+// roundId already matches `newRoundId` are skipped — those were marked after
+// the boundary already passed (e.g. by another client) and belong to the
+// round that's now current, so a late-waking client must not wipe them.
+async function clearAllConfirmedBleeds(newRoundId) {
   if (!db) return;
-  const active = Object.keys(confirmedBleeds);
+  const active = Object.keys(confirmedBleeds)
+    .filter(id => !newRoundId || confirmedBleeds[id].roundId !== newRoundId);
   if (active.length === 0) return;
   const batch = db.batch ? db.batch() : null;
   for (const clanIdStr of active) {
