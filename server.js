@@ -435,20 +435,28 @@ async function syncWeeklyGainsToFirestore() {
   else        console.warn('[weekly] Firestore sync failed:', res.status);
 }
 
-// On startup: if the local file is missing or from a previous week, restore
-// weekStartRep baselines from Firestore weeklyGains/777 (one read, no ongoing cost).
+// On startup: always read Firestore weeklyGains/777 and reconcile with local state.
+//
+// Two cases:
+//   A) Local file is missing/from a prior week → full restore from Firestore.
+//   B) Local file has current week → MERGE: use the lower weekStartRep per member.
+//      This corrects baselines that were wrongly set to "current rep" (e.g. after a
+//      server restart mid-week that lost the real Monday baseline).
+//
+// After reconciliation, the corrected state is immediately written back to Firestore
+// so any other running instance can benefit from the most accurate baselines.
 async function restoreWeeklyGainsFromFirestore() {
   const { weekKey } = getPhWeekBounds();
-  if (weeklyGainsState.weekKey === weekKey) {
-    console.log('[weekly] Local state is current week — no Firestore restore needed.');
-    return;
-  }
-  console.log('[weekly] Local state missing/stale — restoring baselines from Firestore…');
+  console.log('[weekly] Syncing baselines with Firestore…');
   try {
     const res = await firestoreRequest('GET', '/weeklyGains/777');
-    if (!res.ok) { console.warn('[weekly] Restore read failed:', res.status); return; }
+    if (!res.ok) {
+      console.warn('[weekly] Firestore read failed:', res.status,
+        weeklyGainsState.weekKey === weekKey ? '— keeping local state.' : '— starting fresh.');
+      return;
+    }
     const doc = await res.json();
-    if (!doc.fields) { console.warn('[weekly] weeklyGains/777 is empty.'); return; }
+
     const fsVal = (v) => {
       if (!v) return null;
       if (v.stringValue  !== undefined) return v.stringValue;
@@ -459,24 +467,58 @@ async function restoreWeeklyGainsFromFirestore() {
       if (v.arrayValue) return (v.arrayValue.values || []).map(fsVal);
       return null;
     };
-    const fsWeekKey = fsVal(doc.fields.weekKey);
-    if (fsWeekKey !== weekKey) {
-      console.warn('[weekly] Firestore doc is from week', fsWeekKey, '— starting fresh.');
+
+    if (!doc.fields) {
+      console.log('[weekly] weeklyGains/777 is empty in Firestore.');
       return;
     }
-    const rawMembers = fsVal(doc.fields.members) || {};
-    const members = {};
-    for (const [id, m] of Object.entries(rawMembers)) {
-      members[id] = { name: m.name, weekStartRep: m.weekStartRep, currentRep: m.currentRep };
+
+    const fsWeekKey = fsVal(doc.fields.weekKey);
+
+    if (weeklyGainsState.weekKey === weekKey) {
+      // Case B: local file has current week — merge, keeping the lower weekStartRep.
+      if (fsWeekKey !== weekKey) {
+        console.log('[weekly] Firestore doc is from a different week — local state kept as-is.');
+        return;
+      }
+      const rawMembers = fsVal(doc.fields.members) || {};
+      let corrected = 0;
+      for (const [id, fsm] of Object.entries(rawMembers)) {
+        const local = weeklyGainsState.members[id];
+        if (!local) {
+          weeklyGainsState.members[id] = { name: fsm.name, weekStartRep: fsm.weekStartRep, currentRep: fsm.currentRep };
+          corrected++;
+        } else if (typeof fsm.weekStartRep === 'number' && fsm.weekStartRep < local.weekStartRep) {
+          weeklyGainsState.members[id].weekStartRep = fsm.weekStartRep;
+          corrected++;
+        }
+      }
+      if (corrected > 0) {
+        writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
+        console.log(`[weekly] Corrected ${corrected} member baseline(s) from Firestore (lower weekStartRep used).`);
+      } else {
+        console.log('[weekly] Local baselines are already optimal — no correction needed.');
+      }
+    } else {
+      // Case A: local file is missing or from a prior week — full restore.
+      if (fsWeekKey !== weekKey) {
+        console.warn('[weekly] Firestore doc is from week', fsWeekKey, '— starting fresh.');
+        return;
+      }
+      const rawMembers = fsVal(doc.fields.members) || {};
+      const members = {};
+      for (const [id, m] of Object.entries(rawMembers)) {
+        members[id] = { name: m.name, weekStartRep: m.weekStartRep, currentRep: m.currentRep };
+      }
+      weeklyGainsState = {
+        weekKey,
+        weekStartLabel: fsVal(doc.fields.weekStartLabel),
+        weekEndLabel:   fsVal(doc.fields.weekEndLabel),
+        members,
+      };
+      writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
+      console.log(`[weekly] Restored ${Object.keys(members).length} member baselines from Firestore.`);
     }
-    weeklyGainsState = {
-      weekKey,
-      weekStartLabel: fsVal(doc.fields.weekStartLabel),
-      weekEndLabel:   fsVal(doc.fields.weekEndLabel),
-      members,
-    };
-    writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
-    console.log(`[weekly] Restored ${Object.keys(members).length} member baselines from Firestore.`);
   } catch (e) {
     console.warn('[weekly] Restore error:', e.message);
   }
@@ -904,12 +946,16 @@ app.post('/api/push/test', async (req, res) => {
   res.json({ ok: true, subscribers: subscriptions.length });
 });
 
-// ── Start pLS ─────────────────────────────────────────────────────────────────────
+// ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Hidden Cloud tracker listening on port ${PORT}`);
   await initSubscriptions();               // load push subs from Firestore
-  await restoreWeeklyGainsFromFirestore(); // restore weekStartRep baselines if local file is stale
+  await restoreWeeklyGainsFromFirestore(); // reconcile weekStartRep baselines with Firestore
+  // Immediately push the reconciled state back so other instances see the best baselines.
+  if (weeklyGainsState.weekKey) {
+    syncWeeklyGainsToFirestore().catch(e => console.warn('[weekly] Startup sync error:', e.message));
+  }
   await fetchConfirmedBleeds();            // prime SSE state before first client connects
   setInterval(fetchConfirmedBleeds, CONFIRMED_BLEEDS_FALLBACK_POLL_MS); // 30 s fallback poll
   pollForPossibleBleeding();
