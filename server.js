@@ -6,7 +6,7 @@ const webpush = require('web-push');
 
 const PORT = Number(process.env.PORT || 5000);
 const API_URL = 'https://static.ninjasaga.cc/data/clan_rankings.json';
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 5000;
 const MEMBERSHIP_PURGE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const HIDDEN_CLOUD_CLAN_ID = 777;
 const POSSIBLE_BLEEDING_CLAN_THRESHOLD = 2;
@@ -15,6 +15,10 @@ const DATA_DIR = process.env.PUSH_DATA_DIR || path.join(__dirname, '.data');
 const SUBSCRIPTIONS_FILE = path.join(DATA_DIR, 'push-subscriptions.json'); // local fallback
 const DETECTOR_STATE_FILE = path.join(DATA_DIR, 'push-detector-state.json');
 const FIREBASE_TOKEN_FILE = path.join(DATA_DIR, 'firebase-token.json');
+const WEEKLY_GAINS_FILE         = path.join(DATA_DIR, 'weekly-gains-state.json');
+const DISCORD_WEBHOOK_CACHE_FILE = path.join(DATA_DIR, 'discord-webhook-cache.json');
+
+const DISCORD_WEBHOOK_CACHE_TTL_MS = 60 * 60_000; // 1 hour
 
 // Firebase project config (same project the client already uses)
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
@@ -30,6 +34,30 @@ const FIREBASE_REFRESH_URL =
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// Convert a plain JS value to a Firestore REST API typed value.
+function fsValue(val) {
+  if (val === null || val === undefined) return { nullValue: null };
+  if (typeof val === 'boolean') return { booleanValue: val };
+  if (typeof val === 'number') {
+    return Number.isInteger(val) ? { integerValue: String(val) } : { doubleValue: val };
+  }
+  if (typeof val === 'string') return { stringValue: val };
+  if (Array.isArray(val)) return { arrayValue: { values: val.map(fsValue) } };
+  if (typeof val === 'object') {
+    const fields = {};
+    for (const [k, v] of Object.entries(val)) fields[k] = fsValue(v);
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(val) };
+}
+
+// Wrap a plain JS object as a Firestore REST document body { fields: { … } }.
+function fsDoc(obj) {
+  const fields = {};
+  for (const [k, v] of Object.entries(obj)) fields[k] = fsValue(v);
+  return { fields };
+}
 
 function readJson(file, fallback) {
   try {
@@ -299,6 +327,117 @@ function sendPush(payload, excludeEndpoint = null, ttl = 300) {
   });
 }
 
+// ── Weekly gains tracking ─────────────────────────────────────────────────────
+// Tracks per-member rep baseline + current rep for Hidden Cloud (clan 777).
+// Writes to Firestore weeklyGains/777 at most every WEEKLY_GAINS_WRITE_INTERVAL_MS,
+// and only when something actually changed, to minimise Firestore writes.
+
+let weeklyGainsState = readJson(WEEKLY_GAINS_FILE, { weekKey: null, members: {} });
+
+// Returns { weekKey, weekStartLabel, weekEndLabel } for the current week in PH time (UTC+8).
+// Week starts Monday 00:00 PH time.
+function getPhWeekBounds(now = Date.now()) {
+  const PH_OFFSET_MS = 8 * 3_600_000;
+  const phMs = now + PH_OFFSET_MS;
+  const phDate = new Date(phMs);
+  const phDow = phDate.getUTCDay(); // 0=Sun…6=Sat in PH time
+  const daysSinceMon = (phDow + 6) % 7;
+  const phMonMidnight = new Date(phMs);
+  phMonMidnight.setUTCHours(0, 0, 0, 0);
+  phMonMidnight.setTime(phMonMidnight.getTime() - daysSinceMon * 86_400_000);
+  const weekStartUtc = phMonMidnight.getTime() - PH_OFFSET_MS;
+  const toPhDateStr = (utcMs) => new Date(utcMs + PH_OFFSET_MS).toISOString().slice(0, 10);
+  const weekStartLabel = toPhDateStr(weekStartUtc);
+  const weekEndLabel   = toPhDateStr(weekStartUtc + 6 * 86_400_000);
+  return { weekKey: weekStartLabel, weekStartLabel, weekEndLabel };
+}
+
+function updateWeeklyGains(json) {
+  const hcClan = (json.clans || []).find((c) => c.id === HIDDEN_CLOUD_CLAN_ID);
+  if (!hcClan) return;
+
+  const now = Date.now();
+  const { weekKey, weekStartLabel, weekEndLabel } = getPhWeekBounds(now);
+
+  // Week rollover: archive the old week, reset baselines.
+  if (weeklyGainsState.weekKey && weeklyGainsState.weekKey !== weekKey) {
+    archiveWeekToFirestore(weeklyGainsState).catch((e) =>
+      console.warn('[weekly] Archive error:', e.message));
+    weeklyGainsState = { weekKey, weekStartLabel, weekEndLabel, members: {} };
+  } else if (!weeklyGainsState.weekKey) {
+    weeklyGainsState.weekKey = weekKey;
+    weeklyGainsState.weekStartLabel = weekStartLabel;
+    weeklyGainsState.weekEndLabel   = weekEndLabel;
+    if (!weeklyGainsState.members) weeklyGainsState.members = {};
+  }
+
+  const members = weeklyGainsState.members;
+  let changed = false;
+
+  for (const member of hcClan.member_list || []) {
+    const id  = String(member.id);
+    const rep = member.reputation;
+    if (!members[id]) {
+      members[id] = { name: member.name, weekStartRep: rep, currentRep: rep };
+      changed = true;
+    } else {
+      if (members[id].name !== member.name)  { members[id].name = member.name; changed = true; }
+      if (members[id].currentRep !== rep)    { members[id].currentRep = rep;   changed = true; }
+    }
+  }
+
+  if (changed) {
+    writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
+  }
+}
+
+
+async function archiveWeekToFirestore(st) {
+  const membersArr = Object.values(st.members)
+    .map((m) => ({
+      name:     m.name,
+      weekGain: Math.max(0, m.currentRep - m.weekStartRep),
+      startRep: m.weekStartRep,
+      endRep:   m.currentRep,
+    }))
+    .sort((a, b) => b.weekGain - a.weekGain);
+  const res = await firestoreRequest('PATCH', `/weeklyGainsHistory/${st.weekKey}`, fsDoc({
+    weekKey:        st.weekKey,
+    weekStartLabel: st.weekStartLabel,
+    weekEndLabel:   st.weekEndLabel,
+    members:        membersArr,
+  }));
+  if (!res.ok) console.warn('[weekly] Archive PATCH failed:', res.status);
+  else         console.log('[weekly] Archived week', st.weekKey, 'to weeklyGainsHistory.');
+}
+
+// ── Discord webhook URL cache ─────────────────────────────────────────────────
+// Persisted to disk so it survives server restarts without a Firestore read.
+// TTL is 1 hour — if admin updates the URL, restart the server to force refresh.
+const _savedWebhook = readJson(DISCORD_WEBHOOK_CACHE_FILE, { url: null, fetchedAt: 0 });
+let discordWebhookCache = (_savedWebhook.url !== null &&
+  Date.now() - (_savedWebhook.fetchedAt || 0) < DISCORD_WEBHOOK_CACHE_TTL_MS)
+  ? _savedWebhook : { url: null, fetchedAt: 0 };
+
+async function getDiscordWebhookUrl() {
+  const now = Date.now();
+  if (discordWebhookCache.url !== null && now - discordWebhookCache.fetchedAt < DISCORD_WEBHOOK_CACHE_TTL_MS) {
+    return discordWebhookCache.url;
+  }
+  try {
+    const snap = await firestoreRequest('GET', '/config/discordWebhook');
+    if (snap.ok) {
+      const doc = await snap.json();
+      discordWebhookCache = { url: doc.fields?.url?.stringValue || '', fetchedAt: now };
+      writeJson(DISCORD_WEBHOOK_CACHE_FILE, discordWebhookCache); // persist across restarts
+      return discordWebhookCache.url;
+    }
+  } catch (e) {
+    console.warn('Discord: failed to read webhook URL from Firestore:', e.message);
+  }
+  return discordWebhookCache.url || '';
+}
+
 // ── Bleeding detector (server-side, runs even when no client is open) ─────────
 
 let detectorState = readJson(DETECTOR_STATE_FILE, {
@@ -399,6 +538,8 @@ async function pollForPossibleBleeding() {
       detectorState.possibleNotifiedRoundId = null;
     }
 
+    updateWeeklyGains(json);
+
     const bleedingClans = recordGainEvents(json);
     if (bleedingClans.length > POSSIBLE_BLEEDING_CLAN_THRESHOLD) {
       if (!detectorState.possibleBleedSince) detectorState.possibleBleedSince = Date.now();
@@ -493,27 +634,44 @@ app.get('/api/firebase-config', (_req, res) => {
   });
 });
 
+// Weekly gains — served from server memory (no Firestore reads).
+// The server calculates gains from the live rankings API every 5 s and keeps
+// the result in weeklyGainsState. Firestore is only written once per week
+// (via archiveWeekToFirestore) when the week rolls over.
+app.get('/api/weekly-gains', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!weeklyGainsState.weekKey) {
+    return res.json({ members: {}, lastUpdated: null, weekKey: null });
+  }
+  const membersObj = {};
+  for (const [id, m] of Object.entries(weeklyGainsState.members)) {
+    membersObj[id] = {
+      name:         m.name,
+      weekStartRep: m.weekStartRep,
+      currentRep:   m.currentRep,
+      weekGain:     Math.max(0, m.currentRep - m.weekStartRep),
+    };
+  }
+  res.json({
+    weekKey:        weeklyGainsState.weekKey,
+    weekStartLabel: weeklyGainsState.weekStartLabel,
+    weekEndLabel:   weeklyGainsState.weekEndLabel,
+    members:        membersObj,
+    lastUpdated:    Date.now(),
+  });
+});
+
 // Discord bleed ping — proxied through the server so any logged-in member can
 // trigger it regardless of their Firestore client-side read permissions.
-// The webhook URL is fetched fresh from Firestore on every call so admin URL
-// updates take effect immediately without a server restart.
+// Webhook URL is disk-cached; server restart forces a fresh Firestore read.
 app.post('/api/discord/bleed', async (req, res) => {
   const { clanName, clanRank, clanRep, action, byUser, timeStr } = req.body || {};
   if (!clanName || !action || !byUser) {
     return res.status(400).json({ ok: false, error: 'Missing required fields.' });
   }
 
-  // Fetch webhook URL from Firestore (server has full auth via Firebase token)
-  let webhookUrl = '';
-  try {
-    const snap = await firestoreRequest('GET', '/config/discordWebhook');
-    if (snap.ok) {
-      const doc = await snap.json();
-      webhookUrl = doc.fields?.url?.stringValue || '';
-    }
-  } catch (e) {
-    console.warn('Discord bleed: failed to read webhook URL from Firestore:', e.message);
-  }
+  // Fetch webhook URL from cache (refreshed from Firestore at most every 5 min)
+  const webhookUrl = await getDiscordWebhookUrl();
 
   if (!webhookUrl) {
     return res.status(200).json({ ok: false, error: 'No Discord webhook URL configured.' });
