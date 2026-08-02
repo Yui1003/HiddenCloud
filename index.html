@@ -618,7 +618,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
     <div id="header-right">
       <span id="header-user-badge">&#128100; <span id="header-user-name"></span></span>
       <span id="header-admin-badge">&#128081; Admin</span>
-      <span id="fb-status" class="disconnected" title="Firebase sync status">&#11044; Firebase</span>
+      <span id="fb-status" class="disconnected" title="Firebase sync status">&#11044; chicqazsx</span>
       <div id="live-status" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3)">
         <span class="live-pulse" id="live-dot"></span>
         <span id="live-label">Connecting&#8230;</span>
@@ -1179,7 +1179,7 @@ let suspectLogKeysSeen = new Set();
 let accessLevel = 'normal';
 
 // ── Weekly gains state ────────────────────────────────────────────────────────
-let weeklyGainsData    = null;  // live Firestore doc for weeklyGains/777
+let weeklyGainsData    = null;  // current week gains — fetched from /api/weekly-gains (not Firestore)
 let weeklyHistoryData  = [];    // array of past-week docs (newest first)
 let weeklyHistoryFetched = false; // loaded lazily on first weekly tab open
 let weekHistoryOpenKey = null;  // which history card is currently expanded
@@ -1205,6 +1205,7 @@ let state = {
   data: null,            // latest API response
   prevData: null,        // previous API response for delta calc
   lastFetch: null,
+  lastFirestoreSync: null, // ms epoch of last successful Firestore historical load
   currentTab: 'rankings',
   currentDetailClanId: null,
   settings: {
@@ -1256,7 +1257,8 @@ let _pendingUnmarkClanId = null;
 // clanId pending mark confirmation (set by showMarkBleedModal)
 let _pendingMarkClanId = null;
 // Discord webhook URL (admin-set, persisted in Firebase config)
-let discordWebhookUrl = '';
+// Persisted in localStorage so it survives page reloads without a Firestore read.
+let discordWebhookUrl = localStorage.getItem('hc_discord_webhook') || '';
 let confirmedBleedsLoaded = false;
 const confirmedBleedNotificationKeys = new Set();
 let possibleBleedSince = null;
@@ -1280,6 +1282,8 @@ function loadFromStorage() {
       state.suspectLog = saved.suspectLog;
       for (const e of state.suspectLog) { suspectLogKeysSeen.add(e.dedupKey); }
     }
+    if (saved.lastFirestoreSync) state.lastFirestoreSync = saved.lastFirestoreSync;
+    if (saved.bleedEventLog) bleedEventLog = saved.bleedEventLog;
   } catch(e) { console.warn('Storage load error', e); }
 }
 
@@ -1294,6 +1298,8 @@ function saveToStorage() {
       memberGainEvents: state.memberGainEvents,
       deductionLog: state.deductionLog,
       suspectLog: state.suspectLog,
+      lastFirestoreSync: state.lastFirestoreSync,
+      bleedEventLog: bleedEventLog,
     }));
   } catch(e) { console.warn('Storage save error', e); }
 }
@@ -3018,7 +3024,7 @@ function renderBleeding() {
       const rank = clan ? clan.rank : (info.clanRank || '?');
       const name = esc(info.clanName || (clan ? clan.name : '?'));
       const markedAt = info.markedAt ? new Date(info.markedAt) : null;
-      const timeStr = markedAt ? fmtHM(markedAt) : '\u2014';
+      const timeStr = markedAt ? fmtHMS(markedAt) : '\u2014';
       return `<div class="bleed-clan-card" style="border-color:rgba(243,139,168,0.55)" onclick="viewClan(${info.id})">
         <div class="bleed-clan-card-top">
           <div>
@@ -3107,7 +3113,7 @@ function renderHistory() {
             const t     = new Date(ev.ts);
             return `<div style="display:flex;justify-content:space-between;font-size:11px;gap:8px">
               <span style="color:${color}">${icon} <strong>${esc(ev.clanName)}</strong> \u2014 ${label} by ${esc(ev.by)}</span>
-              <span style="color:var(--text3);flex-shrink:0">${fmtHM(t)}</span>
+              <span style="color:var(--text3);flex-shrink:0">${fmtHMS(t)}</span>
             </div>`;
           }).join('')}
         </div>`
@@ -3158,7 +3164,7 @@ function showTab(tab) {
   document.getElementById('tab-' + tab).classList.add('active');
 
   // Lazy-load Firestore data for tabs that don't use persistent listeners
-  if (tab === 'weekly' && db) loadWeeklyHistoryOnce();
+  if (tab === 'weekly') { fetchWeeklyGains(); if (db) loadWeeklyHistoryOnce(); }
   if (tab === 'events' && db) loadEventsFromFirestore();
 
   renderCurrentView();
@@ -3272,7 +3278,7 @@ function showUnmarkBleedModal(clanId) {
   const info = confirmedBleeds[clanId];
   const name = info ? info.clanName : 'this clan';
   const by   = info ? info.markedBy : 'someone';
-  const at   = info && info.markedAt ? fmtHM(new Date(info.markedAt)) : '';
+  const at   = info && info.markedAt ? fmtHMS(new Date(info.markedAt)) : '';
   const subEl = document.getElementById('bleed-modal-sub');
   if (subEl) subEl.textContent = `"${name}" was marked as bleeding by ${by}${at ? ' at ' + at : ''}. Are you sure you want to unmark it?`;
   const overlay = document.getElementById('bleed-modal-overlay');
@@ -3331,7 +3337,7 @@ async function clearAllConfirmedBleeds() {
 async function sendDiscordBleedPing(clan, action) {
   // Routed through the server so any logged-in member can trigger it —
   // not just the admin who has the webhook URL in client memory.
-  const timeStr = fmtHM(new Date());
+  const timeStr = fmtHMS(new Date());
   try {
     await fetch('/api/discord/bleed', {
       method: 'POST',
@@ -3413,9 +3419,9 @@ function updateCountdown(endTs) {
 }
 
 // ============================================================
-// LIVE POLLING \u2014 polls every 2s, re-renders only when data changes
+// LIVE POLLING \u2014 polls every 5s, re-renders only when data changes
 // ============================================================
-const POLL_INTERVAL = 2000; // ms \u2014 server regenerates every ~2s
+const POLL_INTERVAL = 5000; // ms \u2014 server regenerates every ~5s
 let liveTimer = null;
 let liveStatusTimer = null;
 let lastPollAt = null;
@@ -3447,7 +3453,7 @@ function updateLiveStatus() {
   if (!lastPollAt) {
     if (dot) { dot.className = 'live-pulse stale'; }
     lbl.textContent = 'Connecting\u2026';
-  } else if (sincePoll > 12) {
+  } else if (sincePoll > 15) {
     if (dot) { dot.className = 'live-pulse error'; }
     lbl.textContent = 'Offline?';
   } else {
@@ -4088,6 +4094,11 @@ function fmtHM(d) {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+function fmtHMS(d) {
+  if (!d) return '\u2014';
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+}
+
 function timeAgo(d) {
   const s = Math.floor((Date.now() - d) / 1000);
   if (s < 60) return s + 's ago';
@@ -4177,134 +4188,152 @@ function setFbStatus(state) {
 function initFirestoreListeners() {
   if (!db) return;
 
-  // Snapshot of "now" used as the split point: docs before this ts are loaded
-  // with a one-time .get(); docs after are delivered by lightweight live listeners.
-  const loadTs = Date.now();
+  // ── Cache-aware loading ───────────────────────────────────────────────────
+  // When localStorage data is < 30 min old we skip the expensive historical
+  // .get() queries and only open live-tail listeners from the last sync point.
+  // This is the primary lever for reducing Firestore reads.
+  const now = Date.now();
+  const CACHE_TTL_MS = 30 * 60_000; // 30 minutes
+  const lastSync = state.lastFirestoreSync || 0;
+  const hasFreshCache = lastSync > 0 && (now - lastSync) < CACHE_TTL_MS;
+  // Live listeners start from here (overlap window handles clock-skew)
+  const liveFrom = hasFreshCache ? (lastSync - 5000) : (now - 5000);
 
-  // ── Suspect log: one-time historical load + live tail for new entries only ─
-  db.collection('suspectLog')
-    .orderBy('ts', 'desc')
-    .limit(1000)
-    .get()
-    .then(snap => {
-      setFbStatus('connected');
-      snap.forEach(doc => {
-        const entry = doc.data();
-        // Entries with clanDeduction===0 are valid — deduction may arrive after
-        // the rep drop is caught. Only skip malformed entries (no dedupKey).
-        if (!entry.dedupKey) return;
-        if (!suspectLogKeysSeen.has(entry.dedupKey)) {
-          suspectLogKeysSeen.add(entry.dedupKey);
-          if (!state.suspectLog) state.suspectLog = [];
-          state.suspectLog.push(entry);
-        }
-      });
-      state.suspectLog.sort((a, b) => b.ts - a.ts);
-      saveToStorage();
-      updateSuspectsTabBadge();
-      if (state.currentTab === 'suspects') renderSuspects();
+  if (hasFreshCache) {
+    // Data already in localStorage — render immediately, listeners will catch up
+    setFbStatus('connected');
+    updateSuspectsTabBadge();
+    if (state.currentTab === 'suspects')   renderSuspects();
+    if (state.currentTab === 'deductions') renderDeductions();
+    if (state.currentTab === 'history')    renderHistory();
+    if (state.currentTab === 'bleed')      renderBleeding();
+  }
 
-      // Live tail: overlap window covers clock-skew / same-ms writes; dedupKey prevents duplicates
-      db.collection('suspectLog')
-        .where('ts', '>=', loadTs - 5000)
-        .onSnapshot(liveSnap => {
-          let added = 0;
-          liveSnap.docChanges().forEach(change => {
-            if (change.type === 'added') {
-              const entry = change.doc.data();
-              if (!entry.dedupKey) return;
-              if (!suspectLogKeysSeen.has(entry.dedupKey)) {
-                suspectLogKeysSeen.add(entry.dedupKey);
-                if (!state.suspectLog) state.suspectLog = [];
-                state.suspectLog.push(entry);
-                added++;
-              }
+  // ── Suspect log ──────────────────────────────────────────────────────────
+  function setupSuspectLiveTail(fromTs) {
+    db.collection('suspectLog')
+      .where('ts', '>=', fromTs)
+      .onSnapshot(liveSnap => {
+        let added = 0;
+        liveSnap.docChanges().forEach(change => {
+          if (change.type === 'added') {
+            const entry = change.doc.data();
+            if (!entry.dedupKey) return;
+            if (!suspectLogKeysSeen.has(entry.dedupKey)) {
+              suspectLogKeysSeen.add(entry.dedupKey);
+              if (!state.suspectLog) state.suspectLog = [];
+              state.suspectLog.push(entry);
+              added++;
             }
-          });
-          if (added > 0) {
-            state.suspectLog.sort((a, b) => b.ts - a.ts);
-            if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
-            saveToStorage();
-            updateSuspectsTabBadge();
-            if (state.currentTab === 'suspects') renderSuspects();
           }
-        }, err => {
-          console.warn('Firestore suspectLog live error', err);
-          setFbStatus('error');
         });
-    })
-    .catch(err => {
-      console.warn('Firestore suspectLog error', err);
-      setFbStatus('error');
-    });
-
-  // ── Deduction log: one-time historical load + live tail for new entries only
-  db.collection('deductionLog')
-    .orderBy('ts', 'desc')
-    .limit(500)
-    .get()
-    .then(snap => {
-      snap.forEach(doc => {
-        const entry = doc.data();
-        const key = `${entry.clanId}_${entry.ts}`;
-        const alreadyHave = (state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key);
-        if (!alreadyHave) {
-          if (!state.deductionLog) state.deductionLog = [];
-          state.deductionLog.push(entry);
+        if (added > 0) {
+          state.suspectLog.sort((a, b) => b.ts - a.ts);
+          if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
+          state.lastFirestoreSync = Date.now();
+          saveToStorage();
+          updateSuspectsTabBadge();
+          if (state.currentTab === 'suspects') renderSuspects();
         }
-      });
-      state.deductionLog.sort((a, b) => b.ts - a.ts);
-      saveToStorage();
-      if (state.currentTab === 'deductions') renderDeductions();
+      }, err => { console.warn('Firestore suspectLog live error', err); setFbStatus('error'); });
+  }
 
-      // Live tail: overlap window covers clock-skew / same-ms writes; key-based dedup prevents duplicates
-      db.collection('deductionLog')
-        .where('ts', '>=', loadTs - 5000)
-        .onSnapshot(liveSnap => {
-          let added = 0;
-          liveSnap.docChanges().forEach(change => {
-            if (change.type === 'added') {
-              const entry = change.doc.data();
-              const key = `${entry.clanId}_${entry.ts}`;
-              const alreadyHave = (state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key);
-              if (!alreadyHave) {
-                if (!state.deductionLog) state.deductionLog = [];
-                state.deductionLog.push(entry);
-                added++;
-              }
-            }
-          });
-          if (added > 0) {
-            state.deductionLog.sort((a, b) => b.ts - a.ts);
-            if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
-            saveToStorage();
-            if (state.currentTab === 'deductions') renderDeductions();
+  if (hasFreshCache) {
+    setupSuspectLiveTail(liveFrom);
+  } else {
+    // First load or stale cache — fetch up to 200 recent docs then start live tail
+    db.collection('suspectLog')
+      .orderBy('ts', 'desc')
+      .limit(200)
+      .get()
+      .then(snap => {
+        setFbStatus('connected');
+        snap.forEach(doc => {
+          const entry = doc.data();
+          if (!entry.dedupKey) return;
+          if (!suspectLogKeysSeen.has(entry.dedupKey)) {
+            suspectLogKeysSeen.add(entry.dedupKey);
+            if (!state.suspectLog) state.suspectLog = [];
+            state.suspectLog.push(entry);
           }
-        }, err => {
-          console.warn('Firestore deductionLog live error', err);
         });
-    })
-    .catch(err => console.warn('Firestore deductionLog error', err));
+        state.suspectLog.sort((a, b) => b.ts - a.ts);
+        state.lastFirestoreSync = Date.now();
+        saveToStorage();
+        updateSuspectsTabBadge();
+        if (state.currentTab === 'suspects') renderSuspects();
+        setupSuspectLiveTail(now - 5000);
+      })
+      .catch(err => { console.warn('Firestore suspectLog error', err); setFbStatus('error'); });
+  }
 
-  // ── Weekly gains: single live doc (kept real-time — server writes every ~5s) ─
-  db.collection('weeklyGains').doc('777')
-    .onSnapshot(snap => {
-      if (snap.exists) {
-        weeklyGainsData = snap.data();
-        if (state.currentTab === 'weekly') renderWeeklyGains();
-      }
-    }, err => {
-      console.warn('Firestore weeklyGains error', err);
-    });
+  // ── Deduction log ─────────────────────────────────────────────────────────
+  function setupDeductionLiveTail(fromTs) {
+    db.collection('deductionLog')
+      .where('ts', '>=', fromTs)
+      .onSnapshot(liveSnap => {
+        let added = 0;
+        liveSnap.docChanges().forEach(change => {
+          if (change.type === 'added') {
+            const entry = change.doc.data();
+            const key = `${entry.clanId}_${entry.ts}`;
+            const alreadyHave = (state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key);
+            if (!alreadyHave) {
+              if (!state.deductionLog) state.deductionLog = [];
+              state.deductionLog.push(entry);
+              added++;
+            }
+          }
+        });
+        if (added > 0) {
+          state.deductionLog.sort((a, b) => b.ts - a.ts);
+          if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
+          saveToStorage();
+          if (state.currentTab === 'deductions') renderDeductions();
+        }
+      }, err => console.warn('Firestore deductionLog live error', err));
+  }
+
+  if (hasFreshCache) {
+    setupDeductionLiveTail(liveFrom);
+  } else {
+    db.collection('deductionLog')
+      .orderBy('ts', 'desc')
+      .limit(100)
+      .get()
+      .then(snap => {
+        snap.forEach(doc => {
+          const entry = doc.data();
+          const key = `${entry.clanId}_${entry.ts}`;
+          const alreadyHave = (state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key);
+          if (!alreadyHave) {
+            if (!state.deductionLog) state.deductionLog = [];
+            state.deductionLog.push(entry);
+          }
+        });
+        state.deductionLog.sort((a, b) => b.ts - a.ts);
+        saveToStorage();
+        if (state.currentTab === 'deductions') renderDeductions();
+        setupDeductionLiveTail(now - 5000);
+      })
+      .catch(err => console.warn('Firestore deductionLog error', err));
+  }
+
+  // ── Weekly gains: polled from server API (no Firestore reads) ────────────
+  // The server calculates gains in memory from the live rankings feed and
+  // exposes them via /api/weekly-gains. Polling every 10 s is more than
+  // frequent enough since the source data itself updates every 5 s.
+  fetchWeeklyGains();
+  setInterval(fetchWeeklyGains, 10_000);
 
   // ── Weekly gains history: lazy-loaded on first weekly tab open ────────────
   // See loadWeeklyHistoryOnce() — called from showTab('weekly')
 
-  // ── Events: one-time load on init; refreshed when events tab is opened ────
+  // ── Events: TTL-cached; refreshed when events tab is opened after 60 s ────
   // See loadEventsFromFirestore() — also called from showTab('events')
   loadEventsFromFirestore();
 
-  // ── Confirmed bleeds: live doc map (kept real-time — drives instant alerts) ─
+  // ── Confirmed bleeds: always live (drives instant alerts for all users) ───
   db.collection('confirmedBleeds')
     .onSnapshot(snap => {
       const isInitialConfirmedBleedSnapshot = !confirmedBleedsLoaded;
@@ -4330,51 +4359,82 @@ function initFirestoreListeners() {
       if (state.currentTab === 'bleed')    renderBleeding();
     }, err => { console.warn('Firestore confirmedBleeds error', err); });
 
-  // ── Bleed event log: one-time historical load + live tail for new entries ──
-  db.collection('bleedEventLog')
-    .orderBy('ts', 'desc')
-    .limit(500)
-    .get()
-    .then(snap => {
-      // Track doc IDs seen during initial load for dedup in the overlap window
-      const bleedDocIdsSeen = new Set();
-      bleedEventLog = [];
-      snap.forEach(d => { bleedDocIdsSeen.add(d.id); bleedEventLog.push(d.data()); });
-      if (state.currentTab === 'history') renderHistory();
-      if (state.currentTab === 'bleed')   renderBleeding();
-
-      // Live tail: overlap window covers clock-skew / same-ms writes; doc-ID dedup prevents duplicates
-      db.collection('bleedEventLog')
-        .where('ts', '>=', loadTs - 5000)
-        .onSnapshot(liveSnap => {
-          let added = 0;
-          liveSnap.docChanges().forEach(change => {
-            if (change.type === 'added' && !bleedDocIdsSeen.has(change.doc.id)) {
-              bleedDocIdsSeen.add(change.doc.id);
-              bleedEventLog.unshift(change.doc.data());
-              added++;
-            }
-          });
-          if (added > 0) {
-            if (bleedEventLog.length > 500) bleedEventLog = bleedEventLog.slice(0, 500);
-            if (state.currentTab === 'history') renderHistory();
-            if (state.currentTab === 'bleed')   renderBleeding();
+  // ── Bleed event log ───────────────────────────────────────────────────────
+  // Entries include a _id field (Firestore doc ID) so live dedup works even
+  // across sessions when the log is restored from localStorage.
+  function setupBleedLogLiveTail(fromTs, bleedDocIdsSeen) {
+    db.collection('bleedEventLog')
+      .where('ts', '>=', fromTs)
+      .onSnapshot(liveSnap => {
+        let added = 0;
+        liveSnap.docChanges().forEach(change => {
+          if (change.type === 'added' && !bleedDocIdsSeen.has(change.doc.id)) {
+            bleedDocIdsSeen.add(change.doc.id);
+            bleedEventLog.unshift({ _id: change.doc.id, ...change.doc.data() });
+            added++;
           }
-        }, err => { console.warn('Firestore bleedEventLog live error', err); });
-    })
-    .catch(err => console.warn('Firestore bleedEventLog error', err));
+        });
+        if (added > 0) {
+          if (bleedEventLog.length > 500) bleedEventLog = bleedEventLog.slice(0, 500);
+          state.lastFirestoreSync = Date.now();
+          saveToStorage();
+          if (state.currentTab === 'history') renderHistory();
+          if (state.currentTab === 'bleed')   renderBleeding();
+        }
+      }, err => console.warn('Firestore bleedEventLog live error', err));
+  }
 
-  // ── Discord webhook URL: one-time read (only changes on admin action) ──────
-  db.collection('config').doc('discordWebhook')
-    .get()
-    .then(snap => {
-      if (snap.exists) {
-        discordWebhookUrl = snap.data().url || '';
-        const inp = document.getElementById('discord-webhook-input');
-        if (inp && accessLevel === 'admin') inp.value = discordWebhookUrl;
-      }
-    })
-    .catch(err => console.warn('Firestore discordWebhook error', err));
+  if (hasFreshCache) {
+    // Restore doc ID set from cached entries for dedup
+    const bleedDocIdsSeen = new Set(bleedEventLog.map(e => e._id).filter(Boolean));
+    setupBleedLogLiveTail(liveFrom, bleedDocIdsSeen);
+  } else {
+    const bleedDocIdsSeen = new Set();
+    db.collection('bleedEventLog')
+      .orderBy('ts', 'desc')
+      .limit(100)
+      .get()
+      .then(snap => {
+        bleedEventLog = [];
+        snap.forEach(d => {
+          bleedDocIdsSeen.add(d.id);
+          bleedEventLog.push({ _id: d.id, ...d.data() });
+        });
+        saveToStorage();
+        if (state.currentTab === 'history') renderHistory();
+        if (state.currentTab === 'bleed')   renderBleeding();
+        setupBleedLogLiveTail(now - 5000, bleedDocIdsSeen);
+      })
+      .catch(err => console.warn('Firestore bleedEventLog error', err));
+  }
+
+  // ── Discord webhook URL: one-time read per session (only changes on admin action)
+  if (!hasFreshCache) {
+    db.collection('config').doc('discordWebhook')
+      .get()
+      .then(snap => {
+        if (snap.exists) {
+          discordWebhookUrl = snap.data().url || '';
+          const inp = document.getElementById('discord-webhook-input');
+          if (inp && accessLevel === 'admin') inp.value = discordWebhookUrl;
+        }
+      })
+      .catch(err => console.warn('Firestore discordWebhook error', err));
+  }
+}
+
+// ── Weekly gains: fetch from server API, no Firestore reads ──────────────────
+async function fetchWeeklyGains() {
+  try {
+    const res = await fetch('/api/weekly-gains', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.weekKey) return; // server not ready yet
+    weeklyGainsData = data;
+    if (state.currentTab === 'weekly') renderWeeklyGains();
+  } catch (e) {
+    console.warn('fetchWeeklyGains error:', e.message);
+  }
 }
 
 // ── Lazy-load weekly gains history on first weekly tab open (admin only) ──────
@@ -4398,21 +4458,31 @@ function loadWeeklyHistoryOnce() {
 }
 
 // ── Load/refresh events from Firestore ────────────────────────────────────────
-// Called once on Firebase init and again each time the events tab is opened,
-// so new events created by admins become visible without a persistent listener.
-function loadEventsFromFirestore() {
+// Called once on Firebase init and again each time the events tab is opened.
+// A 60-second TTL prevents re-reading 100 docs on every rapid tab switch.
+let eventsLastFetchedAt = 0;
+const EVENTS_FETCH_TTL_MS = 60_000; // 60 seconds
+
+function loadEventsFromFirestore(force) {
   if (!db) return;
+  const now = Date.now();
+  if (!force && eventsLastFetchedAt > 0 && (now - eventsLastFetchedAt) < EVENTS_FETCH_TTL_MS) {
+    // Cache still fresh — just render what we have
+    if (state.currentTab === 'events') renderEvents();
+    return;
+  }
   db.collection('events')
     .orderBy('startTs', 'desc')
     .limit(100)
     .get()
     .then(snap => {
+      eventsLastFetchedAt = Date.now();
       eventsData = [];
       snap.forEach(d => eventsData.push({ id: d.id, ...d.data() }));
       // Subscribe to gains for currently-active events (real-time per event doc)
-      const now = Date.now();
+      const t = Date.now();
       eventsData.forEach(ev => {
-        if (ev.startTs && ev.endTs && ev.startTs <= now && now <= ev.endTs) {
+        if (ev.startTs && ev.endTs && ev.startTs <= t && t <= ev.endTs) {
           subscribeEventGains(ev.id);
         }
       });
