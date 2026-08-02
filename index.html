@@ -3807,12 +3807,14 @@ function confirmDeleteLocalRecords() {
   document.getElementById('modal-confirm-btn').onclick = () => {
     state.suspectLog = [];
     state.deductionLog = [];
+    bleedEventLog = [];
     suspectLogKeysSeen.clear();
+    state.lastFirestoreSync = 0;
     saveToStorage();
     closeModal();
-    updateSuspectsTabBadge();
-    if (state.currentTab === 'suspects') renderSuspects();
-    if (state.currentTab === 'deductions') renderDeductions();
+    // Reload so initFirestoreListeners runs with hasFreshCache=false,
+    // triggering a full historical re-fetch from Firebase.
+    location.reload();
   };
   document.getElementById('modal-overlay').classList.add('visible');
 }
@@ -5319,6 +5321,11 @@ window.showAdminAccessModal         = showAdminAccessModal;
 window.exitAdminLevel               = exitAdminLevel;
 window.setSuspectFilter             = setSuspectFilter;
 window.toggleSection                = toggleSection;
+window.toggleSuspectDate            = toggleSuspectDate;
+window.toggleSuspectClan            = toggleSuspectClan;
+window.toggleDedApi                 = toggleDedApi;
+window.toggleDedDate                = toggleDedDate;
+window.toggleDedClan                = toggleDedClan;
 window.showTab                      = showTab;
 window.closeModal                   = closeModal;
 window.closePwModal                 = closePwModal;
