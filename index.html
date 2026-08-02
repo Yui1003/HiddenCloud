@@ -783,9 +783,6 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
           Export .xlsx
         </button>
       </div>
-      <div class="ded-filter-bar" id="ded-filter-bar">
-        <button class="ded-filter-btn active" onclick="setDedFilter('all',this)">All Clans</button>
-      </div>
       <div id="deductions-list"></div>
     </div>
 
@@ -2745,31 +2742,34 @@ function renderSuspects() {
   let di = 0;
   for (const [dateLabel, clanMap] of dateMap) {
     const totalSuspects = [...clanMap.values()].reduce((n, c) => n + c.entries.length, 0);
-    const isFirstDate = di === 0;
+    const dateIsOpen    = suspectOpenDates.has(dateLabel);
     const dateSectionId = `susp-date-body-${di}`;
     const dateChevrId   = `susp-date-chev-${di}`;
-    html += `<div class="collapsible-date-hdr" onclick="toggleSection('${dateSectionId}','${dateChevrId}')">
+    const safeDateKey   = dateLabel.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    html += `<div class="collapsible-date-hdr" onclick="toggleSuspectDate('${safeDateKey}','${dateSectionId}','${dateChevrId}')">
       <span class="collapsible-date-label">${esc(dateLabel)}</span>
       <span style="display:flex;align-items:center;gap:8px">
         <span class="collapsible-date-meta">${clanMap.size} clan${clanMap.size !== 1 ? 's' : ''} &middot; ${totalSuspects} suspect${totalSuspects !== 1 ? 's' : ''}</span>
-        <span class="collapsible-chevron${isFirstDate ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
+        <span class="collapsible-chevron${dateIsOpen ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
       </span>
     </div>
-    <div id="${dateSectionId}"${isFirstDate ? '' : ' style="display:none"'}>`;
+    <div id="${dateSectionId}"${dateIsOpen ? '' : ' style="display:none"'}>`;
 
     let ci = 0;
     for (const [clanId, clan] of clanMap) {
       const clanBodyId  = `susp-clan-body-${di}-${ci}`;
       const clanChevrId = `susp-clan-chev-${di}-${ci}`;
-      const firstClan   = isFirstDate && ci === 0;
-      html += `<div class="collapsible-clan-hdr" onclick="toggleSection('${clanBodyId}','${clanChevrId}')">
+      const clanKey     = `${dateLabel}::${clanId}`;
+      const safeClanKey = clanKey.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const clanIsOpen  = suspectOpenClans.has(clanKey);
+      html += `<div class="collapsible-clan-hdr" onclick="toggleSuspectClan('${safeClanKey}','${clanBodyId}','${clanChevrId}')">
         <div style="flex:1;min-width:0">
           <div class="collapsible-clan-hdr-name">${esc(clan.clanName)} <span style="font-size:10px;color:var(--text3);font-weight:400">#${clan.clanRank}</span></div>
           <div class="collapsible-clan-hdr-meta">Deduction: <span style="color:var(--red);font-weight:700">-${fmtNum(clan.clanDeduction)}</span> &middot; ${clan.entries.length} suspect${clan.entries.length !== 1 ? 's' : ''}</div>
         </div>
-        <span class="collapsible-chevron${firstClan ? ' open' : ''}" id="${clanChevrId}">&#9658;</span>
+        <span class="collapsible-chevron${clanIsOpen ? ' open' : ''}" id="${clanChevrId}">&#9658;</span>
       </div>
-      <div id="${clanBodyId}"${firstClan ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
+      <div id="${clanBodyId}"${clanIsOpen ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
 
       for (const e of clan.entries) {
         const srcTag   = `<span style="font-size:9px;color:#a6e3a1;background:rgba(166,227,161,0.12);border:1px solid rgba(166,227,161,0.3);padding:1px 5px;border-radius:5px">\u{1F7E2} Live</span>`;
@@ -2813,6 +2813,16 @@ let rankingsFilter  = 'all'; // 'all' | 'gaining-bleed' | 'gaining-manual' | 'ri
 let dedFilterClanId = 'all'; // 'all' or a specific clanId (number)
 let suspectFilter   = 'all'; // 'all' | 'high'
 
+// Suspect tab — tracks which date/clan sections the user has manually opened.
+// All start collapsed; re-renders respect whatever the user has open.
+let suspectOpenDates = new Set();
+let suspectOpenClans = new Set();
+
+// Deduction tab — collapsible API section + date/clan open-state tracking.
+let dedApiOpen   = false;
+let dedOpenDates = new Set();
+let dedOpenClans = new Set();
+
 function setRankingsFilter(filter, btn) {
   rankingsFilter = filter;
   document.querySelectorAll('.rank-filter-btn').forEach(b => b.classList.remove('active'));
@@ -2841,37 +2851,61 @@ function toggleSection(bodyId, chevronId) {
   if (ch) ch.classList.toggle('open', opening);
 }
 
+function toggleSuspectDate(dateKey, bodyId, chevronId) {
+  if (suspectOpenDates.has(dateKey)) suspectOpenDates.delete(dateKey);
+  else suspectOpenDates.add(dateKey);
+  toggleSection(bodyId, chevronId);
+}
+
+function toggleSuspectClan(clanKey, bodyId, chevronId) {
+  if (suspectOpenClans.has(clanKey)) suspectOpenClans.delete(clanKey);
+  else suspectOpenClans.add(clanKey);
+  toggleSection(bodyId, chevronId);
+}
+
+function toggleDedApi() {
+  dedApiOpen = !dedApiOpen;
+  const el = document.getElementById('ded-api-body');
+  const ch = document.getElementById('ded-api-chev');
+  if (el) el.style.display = dedApiOpen ? '' : 'none';
+  if (ch) ch.classList.toggle('open', dedApiOpen);
+}
+
+function toggleDedDate(dateKey, bodyId, chevronId) {
+  if (dedOpenDates.has(dateKey)) dedOpenDates.delete(dateKey);
+  else dedOpenDates.add(dateKey);
+  toggleSection(bodyId, chevronId);
+}
+
+function toggleDedClan(clanKey, bodyId, chevronId) {
+  if (dedOpenClans.has(clanKey)) dedOpenClans.delete(clanKey);
+  else dedOpenClans.add(clanKey);
+  toggleSection(bodyId, chevronId);
+}
+
 function renderDeductions() {
   const container = document.getElementById('deductions-list');
   const log = state.deductionLog || [];
 
-  // Build filter bar from unique clans in the log
-  const filterBar = document.getElementById('ded-filter-bar');
-  if (filterBar) {
-    const seen = new Set();
-    const uniqueClans = [];
-    for (const e of log) {
-      if (!seen.has(e.clanId)) { seen.add(e.clanId); uniqueClans.push({ id: e.clanId, name: e.clanName }); }
-    }
-    filterBar.innerHTML = `<button class="ded-filter-btn${dedFilterClanId === 'all' ? ' active' : ''}" onclick="setDedFilter('all',this)">All Clans</button>` +
-      uniqueClans.map(c =>
-        `<button class="ded-filter-btn${dedFilterClanId === c.id ? ' active' : ''}" onclick="setDedFilter(${c.id},this)">${esc(c.name)}</button>`
-      ).join('');
-  }
-
-  // \u2500\u2500 SECTION 1: Current API Deduction State \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // ── SECTION 1: Current API Deduction State (collapsible) ──────────────
   let html = '';
   if (state.data) {
     const allDed = getAllClanDeductions();
     if (allDed.length > 0) {
-      html += `<div class="section-header" style="padding-top:10px">\u{1F4E1} Current API Deduction State</div>`;
-      html += `<div style="margin:0 12px 8px;font-size:11px;color:var(--text3)">
-        ${allDed.length} clan${allDed.length !== 1 ? 's' : ''} with active deductions \u2014
-        <span class="badge-src-live" style="font-size:9px;padding:1px 5px;border-radius:5px;background:rgba(166,227,161,0.12);color:#a6e3a1;border:1px solid rgba(166,227,161,0.3)">\u{1F7E2} Caught Live</span>
-        = tracker observed rep drop live &nbsp;
-        <span class="badge-src-api" style="font-size:9px;padding:1px 5px;border-radius:5px;background:rgba(137,180,250,0.1);color:#89b4fa;border:1px solid rgba(137,180,250,0.3)">\u{1F4E1} API Based</span>
-        = from API only
-      </div>`;
+      html += `<div class="collapsible-date-hdr" onclick="toggleDedApi()" style="margin-top:6px">
+        <span class="collapsible-date-label">\u{1F4E1} API Based Deductions</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <span class="collapsible-date-meta">${allDed.length} clan${allDed.length !== 1 ? 's' : ''} with active deductions</span>
+          <span class="collapsible-chevron${dedApiOpen ? ' open' : ''}" id="ded-api-chev">&#9658;</span>
+        </span>
+      </div>
+      <div id="ded-api-body"${dedApiOpen ? '' : ' style="display:none"'}>
+        <div style="margin:4px 12px 8px;font-size:11px;color:var(--text3)">
+          <span style="font-size:9px;padding:1px 5px;border-radius:5px;background:rgba(166,227,161,0.12);color:#a6e3a1;border:1px solid rgba(166,227,161,0.3)">\u{1F7E2} Caught Live</span>
+          = tracker observed rep drop live &nbsp;
+          <span style="font-size:9px;padding:1px 5px;border-radius:5px;background:rgba(137,180,250,0.1);color:#89b4fa;border:1px solid rgba(137,180,250,0.3)">\u{1F4E1} API Based</span>
+          = from API only
+        </div>`;
 
       for (const { clan, suspects, clanSource } of allDed) {
         const clanDedLog  = log.filter(e => e.clanId === clan.id);
@@ -2928,12 +2962,11 @@ function renderDeductions() {
           </div>
         </div>`;
       }
+      html += `</div>`; // end ded-api-body
     }
   }
 
-  // \u2500\u2500 SECTION 2: Deduction Change Log (timestamped events) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-  html += `<div class="section-header" style="padding-top:${state.data && getAllClanDeductions().length > 0 ? '14' : '10'}px">\u23F1 Deduction Change Log</div>`;
-
+  // ── SECTION 2: Live Deduction Change Log (date → clan → events) ────────────
   if (log.length === 0) {
     html += `<div class="empty-state" style="padding:24px 20px">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:36px;height:36px;opacity:.4"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
@@ -2944,17 +2977,9 @@ function renderDeductions() {
     return;
   }
 
-  const filtered = dedFilterClanId === 'all' ? log : log.filter(e => e.clanId === dedFilterClanId);
-
-  if (filtered.length === 0) {
-    html += `<div style="padding:16px 12px;font-size:12px;color:var(--text3)">No deduction changes for this clan yet.</div>`;
-    container.innerHTML = html;
-    return;
-  }
-
   // Group by date → clan
   const dateMap = new Map();
-  for (const entry of filtered) {
+  for (const entry of log) {
     const dateLabel = new Date(entry.ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
     if (!dateMap.has(dateLabel)) dateMap.set(dateLabel, new Map());
     const clanMap = dateMap.get(dateLabel);
@@ -2963,40 +2988,44 @@ function renderDeductions() {
   }
 
   const nowMs = Date.now();
-  html += `<div style="padding:0 12px 4px;font-size:11px;color:var(--text3)">${filtered.length} event${filtered.length !== 1 ? 's' : ''} recorded</div>`;
+  html += `<div style="padding:4px 12px 4px;font-size:11px;color:var(--text3)">${log.length} event${log.length !== 1 ? 's' : ''} recorded</div>`;
+
 
   let di = 0;
   for (const [dateLabel, clanMap] of dateMap) {
-    const totalEvents = [...clanMap.values()].reduce((n, c) => n + c.entries.length, 0);
-    const isFirstDate = di === 0;
+    const totalEvents   = [...clanMap.values()].reduce((n, c) => n + c.entries.length, 0);
+    const dateIsOpen    = dedOpenDates.has(dateLabel);
     const dateSectionId = `ded-date-body-${di}`;
     const dateChevrId   = `ded-date-chev-${di}`;
-    html += `<div class="collapsible-date-hdr" onclick="toggleSection('${dateSectionId}','${dateChevrId}')">
+    const safeDateKey   = dateLabel.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    html += `<div class="collapsible-date-hdr" onclick="toggleDedDate('${safeDateKey}','${dateSectionId}','${dateChevrId}')">
       <span class="collapsible-date-label">${esc(dateLabel)}</span>
       <span style="display:flex;align-items:center;gap:8px">
         <span class="collapsible-date-meta">${clanMap.size} clan${clanMap.size !== 1 ? 's' : ''} &middot; ${totalEvents} event${totalEvents !== 1 ? 's' : ''}</span>
-        <span class="collapsible-chevron${isFirstDate ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
+        <span class="collapsible-chevron${dateIsOpen ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
       </span>
     </div>
-    <div id="${dateSectionId}"${isFirstDate ? '' : ' style="display:none"'}>`;
+    <div id="${dateSectionId}"${dateIsOpen ? '' : ' style="display:none"'}>`;
 
     let ci = 0;
     for (const [clanId, clan] of clanMap) {
       const clanBodyId  = `ded-clan-body-${di}-${ci}`;
       const clanChevrId = `ded-clan-chev-${di}-${ci}`;
-      const firstClan   = isFirstDate && ci === 0;
+      const clanKey     = `${dateLabel}::${clanId}`;
+      const safeClanKey = clanKey.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const clanIsOpen  = dedOpenClans.has(clanKey);
       const latestEntry = clan.entries[0];
       const changeSign  = latestEntry.change >= 0 ? '+' : '';
       const changeColor = latestEntry.change > 0 ? 'var(--red)' : 'var(--green)';
 
-      html += `<div class="collapsible-clan-hdr" onclick="toggleSection('${clanBodyId}','${clanChevrId}')">
+      html += `<div class="collapsible-clan-hdr" onclick="toggleDedClan('${safeClanKey}','${clanBodyId}','${clanChevrId}')">
         <div style="flex:1;min-width:0">
           <div class="collapsible-clan-hdr-name">${esc(clan.clanName)} <span style="font-size:10px;color:var(--text3);font-weight:400">#${clan.clanRank}</span></div>
           <div class="collapsible-clan-hdr-meta">Deduction: <span style="color:var(--red);font-weight:700">-${fmtNum(latestEntry.deduction)}</span> &middot; latest change: <span style="color:${changeColor};font-weight:700">${changeSign}${fmtNum(latestEntry.change)}</span> &middot; ${clan.entries.length} event${clan.entries.length !== 1 ? 's' : ''}</div>
         </div>
-        <span class="collapsible-chevron${firstClan ? ' open' : ''}" id="${clanChevrId}">&#9658;</span>
+        <span class="collapsible-chevron${clanIsOpen ? ' open' : ''}" id="${clanChevrId}">&#9658;</span>
       </div>
-      <div id="${clanBodyId}"${firstClan ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
+      <div id="${clanBodyId}"${clanIsOpen ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
 
       for (const e of clan.entries) {
         const d = new Date(e.ts);
