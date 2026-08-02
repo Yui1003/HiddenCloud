@@ -904,7 +904,7 @@ app.post('/api/push/test', async (req, res) => {
   res.json({ ok: true, subscribers: subscriptions.length });
 });
 
-// ── Start ─────────────────────────────────────────────────────────────────────
+// ── Start pLS ─────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Hidden Cloud tracker listening on port ${PORT}`);
