@@ -18,7 +18,9 @@ const FIREBASE_TOKEN_FILE = path.join(DATA_DIR, 'firebase-token.json');
 const WEEKLY_GAINS_FILE         = path.join(DATA_DIR, 'weekly-gains-state.json');
 const DISCORD_WEBHOOK_CACHE_FILE = path.join(DATA_DIR, 'discord-webhook-cache.json');
 
-const DISCORD_WEBHOOK_CACHE_TTL_MS = 60 * 60_000; // 1 hour
+const DISCORD_WEBHOOK_CACHE_TTL_MS = 60 * 60_000;  // 1 hour
+const WEEKLY_GAINS_SYNC_INTERVAL_MS = 5 * 60_000;  // Write weeklyGains/777 at most every 5 min
+const CONFIRMED_BLEEDS_FALLBACK_POLL_MS = 30_000;  // Re-read confirmedBleeds every 30 s as fallback
 
 // Firebase project config (same project the client already uses)
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
@@ -329,10 +331,14 @@ function sendPush(payload, excludeEndpoint = null, ttl = 300) {
 
 // ── Weekly gains tracking ─────────────────────────────────────────────────────
 // Tracks per-member rep baseline + current rep for Hidden Cloud (clan 777).
-// Writes to Firestore weeklyGains/777 at most every WEEKLY_GAINS_WRITE_INTERVAL_MS,
+// Writes to Firestore weeklyGains/777 at most every WEEKLY_GAINS_SYNC_INTERVAL_MS,
 // and only when something actually changed, to minimise Firestore writes.
+// On startup, if the local file is missing or from a previous week, the correct
+// weekStartRep baselines are restored from Firestore automatically.
 
 let weeklyGainsState = readJson(WEEKLY_GAINS_FILE, { weekKey: null, members: {} });
+let _weeklyGainsSyncTimer = null;
+let _lastWeeklyGainsSync  = 0;
 
 // Returns { weekKey, weekStartLabel, weekEndLabel } for the current week in PH time (UTC+8).
 // Week starts Monday 00:00 PH time.
@@ -388,9 +394,93 @@ function updateWeeklyGains(json) {
 
   if (changed) {
     writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
+    scheduleWeeklyGainsSync(); // throttled Firestore sync (at most every 5 min)
   }
 }
 
+
+// Writes current weeklyGainsState to Firestore weeklyGains/777, throttled to at
+// most once every WEEKLY_GAINS_SYNC_INTERVAL_MS. Called whenever rep values change.
+function scheduleWeeklyGainsSync() {
+  if (_weeklyGainsSyncTimer) return; // already queued
+  const delay = Math.max(0, WEEKLY_GAINS_SYNC_INTERVAL_MS - (Date.now() - _lastWeeklyGainsSync));
+  _weeklyGainsSyncTimer = setTimeout(() => {
+    _weeklyGainsSyncTimer = null;
+    syncWeeklyGainsToFirestore().catch((e) => console.warn('[weekly] Sync error:', e.message));
+  }, delay);
+}
+
+async function syncWeeklyGainsToFirestore() {
+  if (!weeklyGainsState.weekKey) return;
+  _lastWeeklyGainsSync = Date.now();
+  const members = {};
+  for (const [id, m] of Object.entries(weeklyGainsState.members)) {
+    members[id] = {
+      name:         m.name,
+      weekStartRep: m.weekStartRep,
+      currentRep:   m.currentRep,
+      weekGain:     Math.max(0, m.currentRep - m.weekStartRep),
+      lastUpdated:  Date.now(),
+    };
+  }
+  const res = await firestoreRequest('PATCH', '/weeklyGains/777', fsDoc({
+    weekKey:        weeklyGainsState.weekKey,
+    weekStartLabel: weeklyGainsState.weekStartLabel,
+    weekEndLabel:   weeklyGainsState.weekEndLabel,
+    clanId:         777,
+    lastUpdated:    Date.now(),
+    members,
+  }));
+  if (res.ok) console.log('[weekly] Synced weeklyGains/777 to Firestore.');
+  else        console.warn('[weekly] Firestore sync failed:', res.status);
+}
+
+// On startup: if the local file is missing or from a previous week, restore
+// weekStartRep baselines from Firestore weeklyGains/777 (one read, no ongoing cost).
+async function restoreWeeklyGainsFromFirestore() {
+  const { weekKey } = getPhWeekBounds();
+  if (weeklyGainsState.weekKey === weekKey) {
+    console.log('[weekly] Local state is current week — no Firestore restore needed.');
+    return;
+  }
+  console.log('[weekly] Local state missing/stale — restoring baselines from Firestore…');
+  try {
+    const res = await firestoreRequest('GET', '/weeklyGains/777');
+    if (!res.ok) { console.warn('[weekly] Restore read failed:', res.status); return; }
+    const doc = await res.json();
+    if (!doc.fields) { console.warn('[weekly] weeklyGains/777 is empty.'); return; }
+    const fsVal = (v) => {
+      if (!v) return null;
+      if (v.stringValue  !== undefined) return v.stringValue;
+      if (v.integerValue !== undefined) return Number(v.integerValue);
+      if (v.doubleValue  !== undefined) return Number(v.doubleValue);
+      if (v.booleanValue !== undefined) return v.booleanValue;
+      if (v.mapValue)   { const o = {}; for (const [k, vv] of Object.entries(v.mapValue.fields || {})) o[k] = fsVal(vv); return o; }
+      if (v.arrayValue) return (v.arrayValue.values || []).map(fsVal);
+      return null;
+    };
+    const fsWeekKey = fsVal(doc.fields.weekKey);
+    if (fsWeekKey !== weekKey) {
+      console.warn('[weekly] Firestore doc is from week', fsWeekKey, '— starting fresh.');
+      return;
+    }
+    const rawMembers = fsVal(doc.fields.members) || {};
+    const members = {};
+    for (const [id, m] of Object.entries(rawMembers)) {
+      members[id] = { name: m.name, weekStartRep: m.weekStartRep, currentRep: m.currentRep };
+    }
+    weeklyGainsState = {
+      weekKey,
+      weekStartLabel: fsVal(doc.fields.weekStartLabel),
+      weekEndLabel:   fsVal(doc.fields.weekEndLabel),
+      members,
+    };
+    writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
+    console.log(`[weekly] Restored ${Object.keys(members).length} member baselines from Firestore.`);
+  } catch (e) {
+    console.warn('[weekly] Restore error:', e.message);
+  }
+}
 
 async function archiveWeekToFirestore(st) {
   const membersArr = Object.values(st.members)
@@ -563,6 +653,58 @@ async function pollForPossibleBleeding() {
   }
 }
 
+// ── Confirmed bleeds: server-managed state, broadcast via SSE ────────────────
+// Replaces per-client Firestore onSnapshot listeners.
+// All N connected clients share ONE server-side Firestore read (30 s fallback),
+// and receive real-time updates via SSE whenever any user marks/clears a bleed.
+
+const sseClients = new Set();
+let serverConfirmedBleeds = {}; // clanId (number) → bleed doc
+
+function broadcastBleeds() {
+  const payload = `data: ${JSON.stringify(serverConfirmedBleeds)}\n\n`;
+  for (const res of sseClients) {
+    try { res.write(payload); } catch { sseClients.delete(res); }
+  }
+}
+
+// Parses a single Firestore REST typed value to a plain JS value.
+function fsRestVal(v) {
+  if (!v) return null;
+  if (v.stringValue  !== undefined) return v.stringValue;
+  if (v.integerValue !== undefined) return Number(v.integerValue);
+  if (v.doubleValue  !== undefined) return Number(v.doubleValue);
+  if (v.booleanValue !== undefined) return v.booleanValue;
+  if (v.timestampValue !== undefined) return new Date(v.timestampValue).getTime();
+  if (v.mapValue)   { const o = {}; for (const [k, vv] of Object.entries(v.mapValue.fields || {})) o[k] = fsRestVal(vv); return o; }
+  if (v.arrayValue) return (v.arrayValue.values || []).map(fsRestVal);
+  return null;
+}
+
+// Fallback: reads confirmedBleeds from Firestore once every 30 s, ensuring
+// any client that connects after a state change sees the latest data.
+async function fetchConfirmedBleeds() {
+  try {
+    const res = await firestoreRequest('GET', '/confirmedBleeds?pageSize=200');
+    if (!res.ok) return;
+    const data = await res.json();
+    const newState = {};
+    for (const doc of (data.documents || [])) {
+      const f = doc.fields || {};
+      if (fsRestVal(f.active)) {
+        const id = Number(doc.name.split('/').pop());
+        const entry = {};
+        for (const [k, v] of Object.entries(f)) entry[k] = fsRestVal(v);
+        newState[id] = entry;
+      }
+    }
+    const changed = JSON.stringify(newState) !== JSON.stringify(serverConfirmedBleeds);
+    if (changed) { serverConfirmedBleeds = newState; broadcastBleeds(); }
+  } catch (e) {
+    console.warn('[bleeds] Firestore fallback poll error:', e.message);
+  }
+}
+
 // ── Express app ───────────────────────────────────────────────────────────────
 
 const app = express();
@@ -702,6 +844,42 @@ app.post('/api/discord/bleed', async (req, res) => {
   }
 });
 
+// SSE stream — clients subscribe here instead of opening a Firestore listener.
+// On connect they immediately receive the current state; future changes are pushed.
+app.get('/api/bleed-stream', (req, res) => {
+  res.set({
+    'Content-Type':    'text/event-stream',
+    'Cache-Control':   'no-cache',
+    'Connection':      'keep-alive',
+    'X-Accel-Buffering': 'no', // disable nginx buffering when proxied
+  });
+  res.flushHeaders();
+  res.write(`data: ${JSON.stringify(serverConfirmedBleeds)}\n\n`); // send current state immediately
+  sseClients.add(res);
+  req.on('close', () => sseClients.delete(res));
+});
+
+// Called by the client immediately after every Firestore bleed write so the
+// server can broadcast the change without waiting for the 30 s fallback poll.
+// The client sends the updated slice of state; the server merges and broadcasts.
+app.post('/api/bleeds/sync', (req, res) => {
+  const { bleeds } = req.body || {};
+  if (bleeds && typeof bleeds === 'object') {
+    const next = { ...serverConfirmedBleeds };
+    for (const [id, data] of Object.entries(bleeds)) {
+      const numId = Number(id);
+      if (data === null || (data && data.active === false)) {
+        delete next[numId];
+      } else if (data && data.active) {
+        next[numId] = data;
+      }
+    }
+    serverConfirmedBleeds = next;
+    broadcastBleeds();
+  }
+  res.json({ ok: true });
+});
+
 // Health check — used by UptimeRobot and for verifying the server is running
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -730,7 +908,10 @@ app.post('/api/push/test', async (req, res) => {
 
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Hidden Cloud tracker listening on port ${PORT}`);
-  await initSubscriptions(); // load from Firestore before polling starts
+  await initSubscriptions();               // load push subs from Firestore
+  await restoreWeeklyGainsFromFirestore(); // restore weekStartRep baselines if local file is stale
+  await fetchConfirmedBleeds();            // prime SSE state before first client connects
+  setInterval(fetchConfirmedBleeds, CONFIRMED_BLEEDS_FALLBACK_POLL_MS); // 30 s fallback poll
   pollForPossibleBleeding();
   setInterval(pollForPossibleBleeding, POLL_INTERVAL_MS);
 });
