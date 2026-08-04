@@ -1365,6 +1365,7 @@ async function fetchData(manual = false) {
     recordMemberPeaks(roundRolledOver);
     recordMemberGainEvents(roundRolledOver);
     recordDeductionChanges();
+    captureConfirmedSuspects();
 
     lastPollAt = Date.now();
 
@@ -1848,6 +1849,71 @@ function recordDeductionChanges() {
   }
   // Cap log at 500 entries (newest first)
   if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
+}
+
+// Runs every poll to catch HIGH suspects whose rep drop appeared in a DIFFERENT
+// API poll than the clan's official deduction change. The Ninja Saga API can
+// deliver the deduction value and the individual member drop 5–10 s apart, so
+// recordDeductionChanges() (which only fires when the deduction value changes)
+// can miss them. This function covers the gap. The dedup key
+// (clanId_memberId_peak) prevents double-writes with recordDeductionChanges().
+function captureConfirmedSuspects() {
+  if (!state.data || !state.deductionLog || !state.deductionLog.length) return;
+  if (!state.suspectLog) state.suspectLog = [];
+  const now = Date.now();
+  let anyAdded = false;
+
+  for (const clan of state.data.clans) {
+    // Only check clans that already have a logged deduction change this session.
+    const clanDedLog = state.deductionLog.filter(e => e.clanId === clan.id);
+    if (clanDedLog.length === 0) continue;
+
+    const confirmedSuspects = getSuspectedCheaters(clan.id);
+    for (const s of confirmedSuspects) {
+      if (s.suspicionLevel !== 'HIGH') continue;
+
+      const peak = getMemberPeak(clan.id, s.id);
+      const dedupKey = (peak && peak.peak > 0)
+        ? `${clan.id}_${s.id}_${peak.peak}`
+        : `${clan.id}_${s.id}_ded${now}`;
+
+      if (suspectLogKeysSeen.has(dedupKey)) continue;
+      suspectLogKeysSeen.add(dedupKey);
+
+      // Timestamp the entry to the deduction event it belongs to so it sorts
+      // alongside that event in the suspects tab (not to this later poll).
+      const latestDed = clanDedLog[0];
+      const suspEntry = {
+        dedupKey,
+        ts:              latestDed.ts,
+        clanId:          clan.id,
+        clanName:        clan.name,
+        clanRank:        clan.rank,
+        clanDeduction:   clan.deduction,
+        memberId:        s.id,
+        memberName:      s.name,
+        memberLevel:     s.level,
+        memberRep:       s.reputation,
+        peakRep:         peak?.peak ?? s.reputation,
+        dropAmount:      s.dropAmount || 0,
+        dropCount:       s.dropCount  || 1,
+        confidence:      'HIGH',
+        suspicionLevel:  'HIGH',
+        detectionSource: s.detectionSource || 'live',
+        reason:          s.reason,
+      };
+      state.suspectLog.unshift(suspEntry);
+      pushSuspectToFirestore(suspEntry);
+      anyAdded = true;
+    }
+  }
+
+  if (anyAdded) {
+    if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
+    saveToStorage();
+    updateSuspectsTabBadge();
+    if (state.currentTab === 'suspects') renderSuspects();
+  }
 }
 
 // Exact timestamp string: "07/21/2026 \u00B7 08:07:06 PM"
@@ -2735,6 +2801,77 @@ function renderSuspects() {
     <span style="color:var(--red);font-weight:700">${log.length} HIGH</span> confirmed suspect${log.length !== 1 ? 's' : ''} \u2014 rep drop caught live and aligned exactly with clan deduction change
   </div>`;
 
+  // ── OUR CLAN section (Hidden Cloud — always shown first) ─────────────
+  {
+    const ourEntries = log.filter(e => e.clanId === PERMANENT_CLAN_ID);
+    const hcClan = state.data ? state.data.clans.find(c => c.id === PERMANENT_CLAN_ID) : null;
+    const hcName = hcClan ? hcClan.name : 'Hidden Cloud Village';
+    const ourDateMap = new Map();
+    for (const e of ourEntries) {
+      const dateLabel = new Date(e.ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+      if (!ourDateMap.has(dateLabel)) ourDateMap.set(dateLabel, []);
+      ourDateMap.get(dateLabel).push(e);
+    }
+    const metaText = ourEntries.length === 0
+      ? 'no confirmed suspects'
+      : `${ourDateMap.size} date${ourDateMap.size !== 1 ? 's' : ''} \u00B7 ${ourEntries.length} suspect${ourEntries.length !== 1 ? 's' : ''}`;
+    html += `<div class="collapsible-date-hdr" onclick="toggleSuspOurClan()" style="margin-bottom:4px;border-color:rgba(251,191,36,0.45);background:rgba(251,191,36,0.06)">
+      <span class="collapsible-date-label" style="color:var(--amber)">&#127968; Our Clan \u2014 ${esc(hcName)}</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <span class="collapsible-date-meta">${metaText}</span>
+        <span class="collapsible-chevron${suspOurClanOpen ? ' open' : ''}" id="susp-ourclan-chev">&#9658;</span>
+      </span>
+    </div>
+    <div id="susp-ourclan-body"${suspOurClanOpen ? '' : ' style="display:none"'}>`;
+    if (ourEntries.length === 0) {
+      html += `<div style="padding:10px 14px;font-size:11px;color:var(--text3);font-style:italic">No confirmed suspects recorded for our clan yet.</div>`;
+    } else {
+      let odi = 0;
+      for (const [dateLabel, entries] of ourDateMap) {
+        const dateIsOpen    = suspOurClanOpenDates.has(dateLabel);
+        const dateSectionId = `susp-ourclan-date-body-${odi}`;
+        const dateChevrId   = `susp-ourclan-date-chev-${odi}`;
+        const safeDateKey   = dateLabel.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        html += `<div class="collapsible-clan-hdr" onclick="toggleSuspOurClanDate('${safeDateKey}','${dateSectionId}','${dateChevrId}')">
+          <div style="flex:1;min-width:0">
+            <div class="collapsible-clan-hdr-name">${esc(dateLabel)}</div>
+            <div class="collapsible-clan-hdr-meta">${entries.length} suspect${entries.length !== 1 ? 's' : ''}</div>
+          </div>
+          <span class="collapsible-chevron${dateIsOpen ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
+        </div>
+        <div id="${dateSectionId}"${dateIsOpen ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
+        for (const e of entries) {
+          const srcTag   = `<span style="font-size:9px;color:#a6e3a1;background:rgba(166,227,161,0.12);border:1px solid rgba(166,227,161,0.3);padding:1px 5px;border-radius:5px">\u{1F7E2} Live</span>`;
+          const dropLine = e.dropAmount > 0
+            ? `<span style="color:var(--red);font-size:10px;margin-left:4px">\u2212${fmtNum(e.dropAmount)}${e.dropCount > 1 ? ` (${e.dropCount}\u00D7)` : ''}</span>` : '';
+          const detectedAt = e.dropTs
+            ? new Date(e.dropTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            : new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          html += `<div class="suspect-hist-card" style="margin-bottom:5px">
+            <div class="suspect-hist-top">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:10px;color:var(--text3)">${srcTag}&nbsp; ${detectedAt} \u00B7 ${fmtAgo(e.ts)}</div>
+              </div>
+              <div class="sm-badge"><span class="badge badge-suspect-high" style="font-size:9px">HIGH</span></div>
+            </div>
+            <div class="suspect-hist-member" style="margin-top:5px;border-bottom:none">
+              <div class="sm-icon">\u{1F6A8}</div>
+              <div class="sm-info">
+                <div class="sm-name">${esc(e.memberName)}
+                  <span style="font-size:10px;color:var(--text3)">Lv ${e.memberLevel} \u00B7 Rep ${fmtNum(e.memberRep)}${dropLine}</span>
+                </div>
+                <div class="sm-reason">${esc(e.reason)}</div>
+              </div>
+            </div>
+          </div>`;
+        }
+        html += `</div>`; // end date body
+        odi++;
+      }
+    }
+    html += `</div>`; // end ourclan body
+  }
+
   // Group by date → clan
   const dateMap = new Map();
   for (const e of log) {
@@ -2828,6 +2965,12 @@ let suspectOpenClans = new Set();
 let dedApiOpen   = false;
 let dedOpenDates = new Set();
 let dedOpenClans = new Set();
+let dedOurClanOpen = false;
+let dedOurClanOpenDates = new Set();
+
+// Suspects tab — our clan open-state tracking.
+let suspOurClanOpen = false;
+let suspOurClanOpenDates = new Set();
 
 function setRankingsFilter(filter, btn) {
   rankingsFilter = filter;
@@ -2889,12 +3032,129 @@ function toggleDedClan(clanKey, bodyId, chevronId) {
   toggleSection(bodyId, chevronId);
 }
 
+function toggleDedOurClan() {
+  dedOurClanOpen = !dedOurClanOpen;
+  const el = document.getElementById('ded-ourclan-body');
+  const ch = document.getElementById('ded-ourclan-chev');
+  if (el) el.style.display = dedOurClanOpen ? '' : 'none';
+  if (ch) ch.classList.toggle('open', dedOurClanOpen);
+}
+
+function toggleDedOurClanDate(dateKey, bodyId, chevronId) {
+  if (dedOurClanOpenDates.has(dateKey)) dedOurClanOpenDates.delete(dateKey);
+  else dedOurClanOpenDates.add(dateKey);
+  toggleSection(bodyId, chevronId);
+}
+
+function toggleSuspOurClan() {
+  suspOurClanOpen = !suspOurClanOpen;
+  const el = document.getElementById('susp-ourclan-body');
+  const ch = document.getElementById('susp-ourclan-chev');
+  if (el) el.style.display = suspOurClanOpen ? '' : 'none';
+  if (ch) ch.classList.toggle('open', suspOurClanOpen);
+}
+
+function toggleSuspOurClanDate(dateKey, bodyId, chevronId) {
+  if (suspOurClanOpenDates.has(dateKey)) suspOurClanOpenDates.delete(dateKey);
+  else suspOurClanOpenDates.add(dateKey);
+  toggleSection(bodyId, chevronId);
+}
+
 function renderDeductions() {
   const container = document.getElementById('deductions-list');
   const log = state.deductionLog || [];
 
-  // ── SECTION 1: Current API Deduction State (collapsible) ──────────────
+  // ── OUR CLAN section (Hidden Cloud — always shown first for admin) ─────
   let html = '';
+  const ourClanLog = log.filter(e => e.clanId === PERMANENT_CLAN_ID);
+  {
+    const hcClan = state.data ? state.data.clans.find(c => c.id === PERMANENT_CLAN_ID) : null;
+    const hcName = hcClan ? hcClan.name : 'Hidden Cloud Village';
+    const ourDateMap = new Map();
+    for (const entry of ourClanLog) {
+      const dateLabel = new Date(entry.ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+      if (!ourDateMap.has(dateLabel)) ourDateMap.set(dateLabel, []);
+      ourDateMap.get(dateLabel).push(entry);
+    }
+    const metaText = ourClanLog.length === 0
+      ? 'no deductions recorded'
+      : `${ourDateMap.size} date${ourDateMap.size !== 1 ? 's' : ''} \u00B7 ${ourClanLog.length} event${ourClanLog.length !== 1 ? 's' : ''}`;
+    html += `<div class="collapsible-date-hdr" onclick="toggleDedOurClan()" style="margin-top:6px;border-color:rgba(251,191,36,0.45);background:rgba(251,191,36,0.06)">
+      <span class="collapsible-date-label" style="color:var(--amber)">&#127968; Our Clan \u2014 ${esc(hcName)}</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <span class="collapsible-date-meta">${metaText}</span>
+        <span class="collapsible-chevron${dedOurClanOpen ? ' open' : ''}" id="ded-ourclan-chev">&#9658;</span>
+      </span>
+    </div>
+    <div id="ded-ourclan-body"${dedOurClanOpen ? '' : ' style="display:none"'}>`;
+    if (ourClanLog.length === 0) {
+      html += `<div style="padding:10px 14px;font-size:11px;color:var(--text3);font-style:italic">No deduction events recorded for our clan yet.</div>`;
+    } else {
+      let odi = 0;
+      const nowMs = Date.now();
+      for (const [dateLabel, entries] of ourDateMap) {
+        const dateIsOpen    = dedOurClanOpenDates.has(dateLabel);
+        const dateSectionId = `ded-ourclan-date-body-${odi}`;
+        const dateChevrId   = `ded-ourclan-date-chev-${odi}`;
+        const safeDateKey   = dateLabel.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        html += `<div class="collapsible-clan-hdr" onclick="toggleDedOurClanDate('${safeDateKey}','${dateSectionId}','${dateChevrId}')">
+          <div style="flex:1;min-width:0">
+            <div class="collapsible-clan-hdr-name">${esc(dateLabel)}</div>
+            <div class="collapsible-clan-hdr-meta">${entries.length} event${entries.length !== 1 ? 's' : ''}</div>
+          </div>
+          <span class="collapsible-chevron${dateIsOpen ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
+        </div>
+        <div id="${dateSectionId}"${dateIsOpen ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
+        for (const e of entries) {
+          const d = new Date(e.ts);
+          const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const secAgo = Math.floor((nowMs - e.ts) / 1000);
+          const agoStr = secAgo < 60 ? `${secAgo}s ago` : secAgo < 3600 ? `${Math.floor(secAgo/60)}m ago` : `${Math.floor(secAgo/3600)}h ago`;
+          const eChangeSign  = e.change >= 0 ? '+' : '';
+          const eChangeColor = e.change > 0 ? 'var(--red)' : 'var(--green)';
+          const isNew = secAgo < 30;
+          const membersHtml = (e.members && e.members.length > 0)
+            ? `<div class="ded-members">
+                ${e.members.map(m => {
+                  const dropLine = m.dropAmount > 0
+                    ? ` <span style="color:var(--red);font-size:9px">\u2212${fmtNum(m.dropAmount)}${m.dropCount > 1 ? ` (${m.dropCount}\u00D7)` : ''}</span>`
+                    : '';
+                  return `<div class="ded-member-row">
+                    <div class="ded-member-icon">\u{1F6A8}</div>
+                    <div class="ded-member-info">
+                      <div class="ded-member-name">${esc(m.name)} <span style="font-size:10px;color:var(--text3)">Lv ${m.level} \u00B7 Rep ${fmtNum(m.reputation)}${dropLine}</span></div>
+                      <div class="ded-member-reason">${esc(m.reason)}</div>
+                    </div>
+                    <div class="ded-member-badge"><span class="badge badge-suspect-high" style="font-size:9px">HIGH</span></div>
+                  </div>`;
+                }).join('')}
+              </div>`
+            : '';
+          html += `<div class="ded-entry${isNew ? ' new' : ''}" onclick="viewClan(${e.clanId})">
+            <div class="ded-top-row">
+              <div class="ded-time">
+                <div style="font-size:12px;font-weight:600;color:var(--text2)">${esc(timeStr)}</div>
+                <div style="font-size:10px;color:var(--text3);margin-top:1px">${esc(agoStr)}</div>
+              </div>
+              <div class="ded-clan">
+                <div class="ded-clan-rank">${fmtNum(e.prevDeduction)} \u2192 ${fmtNum(e.deduction)}</div>
+              </div>
+              <div class="ded-amounts">
+                <div class="ded-total">-${fmtNum(e.deduction)}</div>
+                <div class="ded-change" style="color:${eChangeColor}">${eChangeSign}${fmtNum(e.change)}</div>
+              </div>
+            </div>
+            ${membersHtml}
+          </div>`;
+        }
+        html += `</div>`; // end date body
+        odi++;
+      }
+    }
+    html += `</div>`; // end ourclan body
+  }
+
+  // ── SECTION 1: Current API Deduction State (collapsible) ──────────────
   if (state.data) {
     const allDed = getAllClanDeductions();
     if (allDed.length > 0) {
@@ -5416,6 +5676,10 @@ window.toggleSuspectClan            = toggleSuspectClan;
 window.toggleDedApi                 = toggleDedApi;
 window.toggleDedDate                = toggleDedDate;
 window.toggleDedClan                = toggleDedClan;
+window.toggleDedOurClan             = toggleDedOurClan;
+window.toggleDedOurClanDate         = toggleDedOurClanDate;
+window.toggleSuspOurClan            = toggleSuspOurClan;
+window.toggleSuspOurClanDate        = toggleSuspOurClanDate;
 window.showTab                      = showTab;
 window.closeModal                   = closeModal;
 window.closePwModal                 = closePwModal;
