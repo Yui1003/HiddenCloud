@@ -772,6 +772,11 @@ async function fetchConfirmedBleeds() {
 
 const app = express();
 app.use(express.json({ limit: '32kb' }));
+// Serve index.html with no-cache so browsers always get the latest version.
+app.get(['/', '/index.html'], (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 app.use(express.static(__dirname, { etag: false }));
 
 app.get('/api/push/public-key', (_req, res) => {
