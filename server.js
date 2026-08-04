@@ -380,6 +380,9 @@ function updateWeeklyGains(json) {
   const members = weeklyGainsState.members;
   let changed = false;
 
+  // Build the set of member IDs currently in the clan.
+  const currentMemberIds = new Set((hcClan.member_list || []).map((m) => String(m.id)));
+
   for (const member of hcClan.member_list || []) {
     const id  = String(member.id);
     const rep = member.reputation;
@@ -389,6 +392,15 @@ function updateWeeklyGains(json) {
     } else {
       if (members[id].name !== member.name)  { members[id].name = member.name; changed = true; }
       if (members[id].currentRep !== rep)    { members[id].currentRep = rep;   changed = true; }
+    }
+  }
+
+  // Remove members who have left the clan so they no longer appear in weekly gains.
+  for (const id of Object.keys(members)) {
+    if (!currentMemberIds.has(id)) {
+      console.log(`[weekly] Removing ex-member ${members[id]?.name || id} from weekly gains state.`);
+      delete members[id];
+      changed = true;
     }
   }
 
