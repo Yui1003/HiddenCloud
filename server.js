@@ -20,6 +20,7 @@ const DISCORD_WEBHOOK_CACHE_FILE = path.join(DATA_DIR, 'discord-webhook-cache.js
 
 const DISCORD_WEBHOOK_CACHE_TTL_MS = 60 * 60_000;  // 1 hour
 const WEEKLY_GAINS_SYNC_INTERVAL_MS = 5 * 60_000;  // Write weeklyGains/777 at most every 5 min
+const WEEKLY_GAINS_RESTORE_RETRY_MS = 60_000;       // Retry a failed baseline restore
 const CONFIRMED_BLEEDS_FALLBACK_POLL_MS = 30_000;  // Re-read confirmedBleeds every 30 s as fallback
 
 // Firebase project config (same project the client already uses)
@@ -339,6 +340,26 @@ function sendPush(payload, excludeEndpoint = null, ttl = 300) {
 let weeklyGainsState = readJson(WEEKLY_GAINS_FILE, { weekKey: null, members: {} });
 let _weeklyGainsSyncTimer = null;
 let _lastWeeklyGainsSync  = 0;
+let weeklyGainsWriteAllowed = false;
+let weeklyGainsRestoreRetryTimer = null;
+
+// A Replit server can restart while Firestore is temporarily unavailable. Do
+// not let the first live poll turn the current reputation into a new baseline
+// and then write that reset back over the Monday baseline in Firestore.
+function scheduleWeeklyGainsRestoreRetry() {
+  if (weeklyGainsWriteAllowed || weeklyGainsRestoreRetryTimer) return;
+  weeklyGainsRestoreRetryTimer = setTimeout(async () => {
+    weeklyGainsRestoreRetryTimer = null;
+    await restoreWeeklyGainsFromFirestore();
+    if (!weeklyGainsWriteAllowed) {
+      scheduleWeeklyGainsRestoreRetry();
+    } else if (weeklyGainsState.weekKey && Object.keys(weeklyGainsState.members || {}).length > 0) {
+      writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
+      syncWeeklyGainsToFirestore().catch((e) =>
+        console.warn('[weekly] Retry sync error:', e.message));
+    }
+  }, WEEKLY_GAINS_RESTORE_RETRY_MS);
+}
 
 // Returns { weekKey, weekStartLabel, weekEndLabel } for the current week in PH time (UTC+8).
 // Week starts Monday 00:00 PH time.
@@ -391,7 +412,13 @@ function updateWeeklyGains(json) {
       changed = true;
     } else {
       if (members[id].name !== member.name)  { members[id].name = member.name; changed = true; }
-      if (members[id].currentRep !== rep)    { members[id].currentRep = rep;   changed = true; }
+      // Reputation is cumulative for the season. Ignore a stale or
+      // out-of-order rankings response so a previously recorded weekly gain
+      // cannot temporarily fall back to zero.
+      if (typeof rep === 'number' && rep > members[id].currentRep) {
+        members[id].currentRep = rep;
+        changed = true;
+      }
     }
   }
 
@@ -405,8 +432,12 @@ function updateWeeklyGains(json) {
   }
 
   if (changed) {
-    writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
-    scheduleWeeklyGainsSync(); // throttled Firestore sync (at most every 5 min)
+    // Keep an unverified in-memory state while Firestore restore is pending,
+    // but never persist it until we know it is safe to do so.
+    if (weeklyGainsWriteAllowed) {
+      writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
+      scheduleWeeklyGainsSync(); // throttled Firestore sync (at most every 5 min)
+    }
   }
 }
 
@@ -414,6 +445,7 @@ function updateWeeklyGains(json) {
 // Writes current weeklyGainsState to Firestore weeklyGains/777, throttled to at
 // most once every WEEKLY_GAINS_SYNC_INTERVAL_MS. Called whenever rep values change.
 function scheduleWeeklyGainsSync() {
+  if (!weeklyGainsWriteAllowed) return;
   if (_weeklyGainsSyncTimer) return; // already queued
   const delay = Math.max(0, WEEKLY_GAINS_SYNC_INTERVAL_MS - (Date.now() - _lastWeeklyGainsSync));
   _weeklyGainsSyncTimer = setTimeout(() => {
@@ -423,6 +455,7 @@ function scheduleWeeklyGainsSync() {
 }
 
 async function syncWeeklyGainsToFirestore() {
+  if (!weeklyGainsWriteAllowed) return;
   if (!weeklyGainsState.weekKey) return;
   _lastWeeklyGainsSync = Date.now();
   const members = {};
@@ -465,6 +498,18 @@ async function restoreWeeklyGainsFromFirestore() {
     if (!res.ok) {
       console.warn('[weekly] Firestore read failed:', res.status,
         weeklyGainsState.weekKey === weekKey ? '— keeping local state.' : '— starting fresh.');
+      if (res.status === 404) {
+        // No document exists yet: this is a first-ever initialization, not a
+        // transient outage. The next live poll may safely establish the
+        // current week's baseline.
+        weeklyGainsWriteAllowed = true;
+        return;
+      }
+      // Even a populated local file may be behind a healthier Firestore copy.
+      // It is safe to keep serving it, but not to write it back until the
+      // remote baseline has been verified.
+      weeklyGainsWriteAllowed = false;
+      scheduleWeeklyGainsRestoreRetry();
       return;
     }
     const doc = await res.json();
@@ -482,6 +527,8 @@ async function restoreWeeklyGainsFromFirestore() {
 
     if (!doc.fields) {
       console.log('[weekly] weeklyGains/777 is empty in Firestore.');
+      // An explicitly empty document is safe for first-time initialization.
+      weeklyGainsWriteAllowed = true;
       return;
     }
 
@@ -491,6 +538,9 @@ async function restoreWeeklyGainsFromFirestore() {
       // Case B: local file has current week — merge, keeping the lower weekStartRep.
       if (fsWeekKey !== weekKey) {
         console.log('[weekly] Firestore doc is from a different week — local state kept as-is.');
+        // The current-week local state can be used; the next poll will
+        // establish a new baseline for this new week.
+        weeklyGainsWriteAllowed = true;
         return;
       }
       const rawMembers = fsVal(doc.fields.members) || {};
@@ -500,9 +550,22 @@ async function restoreWeeklyGainsFromFirestore() {
         if (!local) {
           weeklyGainsState.members[id] = { name: fsm.name, weekStartRep: fsm.weekStartRep, currentRep: fsm.currentRep };
           corrected++;
-        } else if (typeof fsm.weekStartRep === 'number' && fsm.weekStartRep < local.weekStartRep) {
-          weeklyGainsState.members[id].weekStartRep = fsm.weekStartRep;
-          corrected++;
+        } else {
+          // The baseline is immutable for the week. If two server instances
+          // disagree, the lower value is the only safe choice because it
+          // preserves all gains already observed.
+          if (typeof fsm.weekStartRep === 'number' && fsm.weekStartRep < local.weekStartRep) {
+            weeklyGainsState.members[id].weekStartRep = fsm.weekStartRep;
+            corrected++;
+          }
+          // Keep the freshest observed reputation when restoring. This also
+          // prevents a restarted instance from briefly moving the live value
+          // backwards while it catches up with the rankings poller.
+          if (typeof fsm.currentRep === 'number' &&
+              fsm.currentRep > weeklyGainsState.members[id].currentRep) {
+            weeklyGainsState.members[id].currentRep = fsm.currentRep;
+            corrected++;
+          }
         }
       }
       if (corrected > 0) {
@@ -511,10 +574,14 @@ async function restoreWeeklyGainsFromFirestore() {
       } else {
         console.log('[weekly] Local baselines are already optimal — no correction needed.');
       }
+      weeklyGainsWriteAllowed = true;
     } else {
       // Case A: local file is missing or from a prior week — full restore.
       if (fsWeekKey !== weekKey) {
         console.warn('[weekly] Firestore doc is from week', fsWeekKey, '— starting fresh.');
+        // The remote document belongs to a completed week. It is safe to
+        // create the current week's state on the next rankings poll.
+        weeklyGainsWriteAllowed = true;
         return;
       }
       const rawMembers = fsVal(doc.fields.members) || {};
@@ -530,9 +597,12 @@ async function restoreWeeklyGainsFromFirestore() {
       };
       writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
       console.log(`[weekly] Restored ${Object.keys(members).length} member baselines from Firestore.`);
+      weeklyGainsWriteAllowed = true;
     }
   } catch (e) {
     console.warn('[weekly] Restore error:', e.message);
+    weeklyGainsWriteAllowed = false;
+    scheduleWeeklyGainsRestoreRetry();
   }
 }
 
@@ -986,7 +1056,7 @@ app.listen(PORT, '0.0.0.0', async () => {
   await initSubscriptions();               // load push subs from Firestore
   await restoreWeeklyGainsFromFirestore(); // reconcile weekStartRep baselines with Firestore
   // Immediately push the reconciled state back so other instances see the best baselines.
-  if (weeklyGainsState.weekKey) {
+  if (weeklyGainsState.weekKey && weeklyGainsWriteAllowed) {
     syncWeeklyGainsToFirestore().catch(e => console.warn('[weekly] Startup sync error:', e.message));
   }
   await fetchConfirmedBleeds();            // prime SSE state before first client connects
