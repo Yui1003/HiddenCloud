@@ -400,6 +400,7 @@ function updateWeeklyGains(json) {
 
   const members = weeklyGainsState.members;
   let changed = false;
+  let newBaselineAdded = false; // a brand-new mid-week join was just baselined
 
   // Build the set of member IDs currently in the clan.
   const currentMemberIds = new Set((hcClan.member_list || []).map((m) => String(m.id)));
@@ -410,6 +411,7 @@ function updateWeeklyGains(json) {
     if (!members[id]) {
       members[id] = { name: member.name, weekStartRep: rep, currentRep: rep };
       changed = true;
+      newBaselineAdded = true;
     } else {
       if (members[id].name !== member.name)  { members[id].name = member.name; changed = true; }
       // Reputation is cumulative for the season. Ignore a stale or
@@ -436,7 +438,15 @@ function updateWeeklyGains(json) {
     // but never persist it until we know it is safe to do so.
     if (weeklyGainsWriteAllowed) {
       writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
-      scheduleWeeklyGainsSync(); // throttled Firestore sync (at most every 5 min)
+      if (newBaselineAdded) {
+        // A mid-week join's baseline only exists in memory until it reaches
+        // Firestore. Push it immediately instead of waiting up to 5 minutes,
+        // so a crash/restart in that window can't erase it like before.
+        syncWeeklyGainsToFirestore().catch((e) =>
+          console.warn('[weekly] Immediate new-member baseline sync error:', e.message));
+      } else {
+        scheduleWeeklyGainsSync(); // throttled Firestore sync (at most every 5 min)
+      }
     }
   }
 }
