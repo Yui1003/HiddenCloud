@@ -3463,10 +3463,23 @@ function renderHistory() {
     return;
   }
 
-  const rounds = [...state.roundHistory].reverse();
+  // Sort by the round's displayed start date/time, newest to oldest. Do not
+  // rely on array storage order because local and Firestore data can be merged
+  // in different orders, and endTs may be recorded later than the round date.
+  const rounds = [...state.roundHistory].sort((a, b) => {
+    const aTime = new Date(a.startTs || a.endTs).getTime();
+    const bTime = new Date(b.startTs || b.endTs).getTime();
+    return bTime - aTime;
+  });
   container.innerHTML = rounds.map(rnd => {
     const start = new Date(rnd.startTs);
     const end = new Date(rnd.endTs);
+    const dateLabel = start.toLocaleDateString([], {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
     const gainers = rnd.clans.filter(c => c.gain > 0);
     const topGainers = gainers.slice(0, 3);
     const riskClans = rnd.clans.filter(c => c.gain <= 0 && c.rank <= RISK_BLEED_RANK_THRESHOLD);
@@ -3501,7 +3514,7 @@ function renderHistory() {
 
     return `<div class="history-snapshot-card">
       <div class="hsc-top">
-        <div class="hsc-time">${fmtHM(start)} \u2013 ${fmtHM(end)}</div>
+        <div class="hsc-time">${dateLabel} \u00B7 ${fmtHM(start)} \u2013 ${fmtHM(end)}</div>
         <span class="badge" style="background:rgba(166,227,161,0.15);color:var(--safe);border:1px solid rgba(166,227,161,0.3)">${gainers.length} GAINING</span>
         <span class="badge badge-med" style="margin-left:4px">${riskClans.length} RISK BLEED</span>
         <span class="badge" style="margin-left:4px;background:rgba(108,112,134,0.15);color:var(--text3);border:1px solid rgba(108,112,134,0.3)">${flatClans.length} FLAT</span>
