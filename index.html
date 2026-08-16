@@ -52,6 +52,20 @@
 .live-pulse.error{background:var(--red);animation:none}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:14px}
+/* Watermark: the Hidden Cloud Village logo, centered and dimmed, sitting
+   behind every screen. Fixed + low opacity so it reads as a background
+   texture rather than competing with the actual UI on top of it. Screens,
+   cards, headers etc. all keep their existing solid backgrounds, so this
+   only shows through in the empty space around/between content. */
+body::before{
+  content:'';
+  position:fixed;
+  inset:0;
+  background:url('./hidden-cloud-logo.png') center / min(65vw,520px) no-repeat;
+  opacity:0.06;
+  pointer-events:none;
+  z-index:-1;
+}
 #app{display:flex;flex-direction:column;height:100%;overflow:hidden}
 /* HEADER */
 #header{height:var(--header-h);background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:10px;flex-shrink:0;z-index:10}
