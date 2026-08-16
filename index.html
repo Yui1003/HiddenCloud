@@ -51,7 +51,7 @@
 .live-pulse.stale{background:var(--amber)}
 .live-pulse.error{background:var(--red);animation:none}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:14px}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:14px;text-shadow:-1px -1px 0 rgba(0,0,0,.85),1px -1px 0 rgba(0,0,0,.85),-1px 1px 0 rgba(0,0,0,.85),1px 1px 0 rgba(0,0,0,.85),0 0 6px rgba(0,0,0,.5)}
 body{position:relative;z-index:0}
 /* Watermark: the Hidden Cloud Village logo, centered and dimmed, sitting
    behind every screen. Fixed + low opacity so it reads as a background
@@ -140,7 +140,7 @@ body::before{
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 /* CLAN CARDS */
 .clans-list{padding:0 12px 80px;display:flex;flex-direction:column;gap:6px}
-.clan-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 12px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.clan-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 12px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
 .clan-card:hover{border-color:var(--border2);background:var(--card2)}
 .clan-card.your-clan{border-color:var(--mauve)}
 @keyframes pulse-border-green{0%,100%{border-color:rgba(166,227,161,0.35)}50%{border-color:rgba(166,227,161,0.85)}}
