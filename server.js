@@ -1115,6 +1115,87 @@ async function fetchConfirmedBleeds() {
   }
 }
 
+// ── Suspect / deduction / round-history: server-owned write + broadcast ──────
+// Every open client independently *detects* these events from the same
+// polled rankings data (that detection logic stays in the browser — it's
+// tightly coupled to each client's own live round/peak-tracking state, so
+// porting it server-side would be a much riskier rewrite). What changes is
+// what a client does with something it detects: instead of writing straight
+// to Firestore and opening an onSnapshot listener to see what everyone else
+// wrote, it POSTs the event to the server. The server keeps a small in-memory
+// cache, forwards only the FIRST report of any given id to Firestore, and
+// broadcasts every real (non-duplicate) event to all connected clients over
+// one shared SSE stream — the same pattern already used for confirmedBleeds
+// above. N clients detecting the same real-world event now collapses into
+// exactly one Firestore write and one fan-out, instead of N writes and
+// N-times-listeners reads.
+
+const TRACKER_CACHE_LIMITS = { suspects: 1000, deductions: 500, rounds: 100, bleedEvents: 500 };
+const trackerCache = { suspects: [], deductions: [], rounds: [], bleedEvents: [] };
+const trackerSeenKeys = { suspects: new Set(), deductions: new Set(), rounds: new Set() };
+const trackerSseClients = new Set();
+
+function broadcastTracker(type, entry) {
+  const payload = `data: ${JSON.stringify({ type, entry })}\n\n`;
+  for (const res of trackerSseClients) {
+    try { res.write(payload); } catch { trackerSseClients.delete(res); }
+  }
+}
+
+function capUnshift(arr, entry, limit) {
+  arr.unshift(entry);
+  if (arr.length > limit) arr.length = limit;
+}
+
+// Shared handler for the three auto-detected, high-frequency collections.
+// Returns true if this was a genuinely new event (written through + broadcast).
+async function ingestTrackerEvent(kind, collection, docId, entry, cacheKey) {
+  const seen = trackerSeenKeys[cacheKey];
+  if (seen.has(docId)) return false; // another client already reported this — no-op
+  seen.add(docId);
+  if (seen.size > 5000) { // keep the seen-set bounded on a long-running server
+    seen.delete(seen.values().next().value);
+  }
+  capUnshift(trackerCache[cacheKey], entry, TRACKER_CACHE_LIMITS[cacheKey]);
+  broadcastTracker(kind, entry);
+  // Fire-and-forget write-through — the reporting client doesn't wait on this.
+  firestoreRequest('PATCH', `/${collection}/${encodeURIComponent(docId)}`, fsDoc(entry))
+    .then(res => { if (!res.ok) console.warn(`[tracker] ${collection} write failed: HTTP`, res.status); })
+    .catch(e => console.warn(`[tracker] ${collection} write error:`, e.message));
+  return true;
+}
+
+// One-time backfill on boot so the cache isn't empty for the first clients to
+// connect after a deploy/restart. Runs ONCE regardless of how many clients
+// connect afterward (they all just read this in-memory cache).
+async function backfillTrackerCache() {
+  async function fetchRecent(collection, orderField, limit) {
+    try {
+      return await firestoreRunQuery({
+        from: [{ collectionId: collection }],
+        orderBy: [{ field: { fieldPath: orderField }, direction: 'DESCENDING' }],
+        limit,
+      });
+    } catch (e) {
+      console.warn(`[tracker] backfill ${collection} failed:`, e.message);
+      return [];
+    }
+  }
+  const [suspects, deductions, rounds, bleedEvents] = await Promise.all([
+    fetchRecent('suspectLog', 'ts', 200),
+    fetchRecent('deductionLog', 'ts', 100),
+    fetchRecent('roundHistory', 'endTs', 96),
+    fetchRecent('bleedEventLog', 'ts', 100),
+  ]);
+  trackerCache.suspects   = suspects;
+  trackerCache.deductions = deductions;
+  trackerCache.rounds     = rounds.slice().sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
+  trackerCache.bleedEvents = bleedEvents;
+  for (const s of suspects)   if (s.dedupKey) trackerSeenKeys.suspects.add(s.dedupKey);
+  for (const d of deductions) trackerSeenKeys.deductions.add(`${d.clanId}_${d.ts}`);
+  for (const r of rounds)     trackerSeenKeys.rounds.add(r.id);
+}
+
 // ── Express app ───────────────────────────────────────────────────────────────
 
 const app = express();
@@ -1290,6 +1371,84 @@ app.post('/api/bleeds/sync', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Tracker channel: suspects / deductions / rounds / bleed-event log ────────
+// Replaces the four per-client Firestore onSnapshot listeners + direct writes
+// that used to live in index.html for these collections.
+
+app.post('/api/suspects', async (req, res) => {
+  const entry = req.body;
+  if (!entry || typeof entry.dedupKey !== 'string' || !entry.dedupKey) {
+    return res.status(400).json({ error: 'dedupKey is required.' });
+  }
+  const isNew = await ingestTrackerEvent('suspect', 'suspectLog', entry.dedupKey, entry, 'suspects');
+  res.json({ ok: true, duplicate: !isNew });
+});
+
+app.post('/api/deductions', async (req, res) => {
+  const entry = req.body;
+  if (!entry || typeof entry.clanId === 'undefined' || typeof entry.ts !== 'number') {
+    return res.status(400).json({ error: 'clanId and ts are required.' });
+  }
+  // entry.ts is a local Date.now() from whichever client detected the change
+  // first, so it can differ by a few seconds between clients watching the
+  // same real event. Bucket it into a 30 s window (well above normal
+  // cross-client poll skew) so those near-simultaneous reports collapse into
+  // one Firestore write, while a genuine repeat of the same deduction value
+  // hours later still gets logged as its own entry.
+  const bucket = Math.floor(entry.ts / 30000);
+  const docId = `${entry.clanId}_${entry.deduction}_${bucket}`;
+  const isNew = await ingestTrackerEvent('deduction', 'deductionLog', docId, entry, 'deductions');
+  res.json({ ok: true, duplicate: !isNew });
+});
+
+app.post('/api/rounds', async (req, res) => {
+  const entry = req.body;
+  if (!entry || typeof entry.id !== 'string' || !entry.id) {
+    return res.status(400).json({ error: 'id is required.' });
+  }
+  const isNew = await ingestTrackerEvent('round', 'roundHistory', entry.id, entry, 'rounds');
+  res.json({ ok: true, duplicate: !isNew });
+});
+
+// bleedEventLog writes stay client-side (they're one-off admin button clicks,
+// not auto-detected every poll, so they were never the source of duplicate
+// writes — only the listener reading them was expensive). This endpoint just
+// lets the server cache + broadcast what the client already wrote, mirroring
+// /api/bleeds/sync above, so clients can drop their onSnapshot listener too.
+app.post('/api/bleed-events', (req, res) => {
+  const entry = req.body;
+  if (!entry || typeof entry !== 'object') return res.status(400).json({ error: 'entry is required.' });
+  if (entry._patchId) {
+    const idx = trackerCache.bleedEvents.findIndex(e => e._id === entry._patchId);
+    if (idx !== -1) trackerCache.bleedEvents[idx] = { ...trackerCache.bleedEvents[idx], ...entry };
+  } else {
+    capUnshift(trackerCache.bleedEvents, entry, TRACKER_CACHE_LIMITS.bleedEvents);
+  }
+  broadcastTracker('bleedEvent', entry);
+  res.json({ ok: true });
+});
+
+// Catch-up snapshot for a newly opened session — served entirely from the
+// in-memory cache, so opening/reloading the app costs zero Firestore reads
+// no matter how many people do it at once.
+app.get('/api/tracker-snapshot', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(trackerCache);
+});
+
+// Live stream — one shared connection per client, no Firestore listener behind it.
+app.get('/api/tracker-stream', (req, res) => {
+  res.set({
+    'Content-Type':      'text/event-stream',
+    'Cache-Control':      'no-cache',
+    'Connection':         'keep-alive',
+    'X-Accel-Buffering':  'no',
+  });
+  res.flushHeaders();
+  trackerSseClients.add(res);
+  req.on('close', () => trackerSseClients.delete(res));
+});
+
 // Health check — used by UptimeRobot and for verifying the server is running
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -1326,6 +1485,7 @@ app.listen(PORT, '0.0.0.0', async () => {
   }
   await fetchConfirmedBleeds();            // prime SSE state before first client connects
   setInterval(fetchConfirmedBleeds, CONFIRMED_BLEEDS_FALLBACK_POLL_MS); // 30 s fallback poll
+  await backfillTrackerCache();            // prime suspects/deductions/rounds/bleed-log once
   pollForPossibleBleeding();
   setInterval(pollForPossibleBleeding, POLL_INTERVAL_MS);
 });
