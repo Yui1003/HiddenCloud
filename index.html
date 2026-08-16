@@ -86,11 +86,11 @@ body::before{
 .pwa-install-btn{background:var(--mauve);border:1px solid var(--mauve);color:#0a0a0a;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700;text-shadow:none}
 .pwa-install-btn:hover{background:#ffd60a;border-color:#ffd60a}
 /* TAB BAR */
-#tabs{display:flex;background:var(--bg2);border-top:1px solid var(--border);height:var(--tab-h);flex-shrink:0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;scroll-snap-type:x proximity}
+#tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);height:var(--tab-h);flex-shrink:0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;scroll-snap-type:x proximity;overscroll-behavior-x:contain;touch-action:pan-x}
 #tabs::-webkit-scrollbar{display:none}
-.tab{flex:0 0 auto;min-width:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;color:var(--text3);transition:all .2s;border-top:2px solid transparent;padding:8px 10px;scroll-snap-align:start;white-space:nowrap}
+.tab{flex:0 0 auto;min-width:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;color:var(--text3);transition:all .2s;border-bottom:2px solid transparent;padding:8px 10px;scroll-snap-align:start;white-space:nowrap}
 .tab:hover{color:var(--text2)}
-.tab.active{color:var(--mauve);border-top-color:var(--mauve)}
+.tab.active{color:var(--mauve);border-bottom-color:var(--mauve)}
 .tab svg{width:18px;height:18px}
 .tab span{font-size:10px;font-weight:500;letter-spacing:0.3px}
 /* MAIN CONTENT */
@@ -672,6 +672,42 @@ body::before{
     </div>
   </div>
 
+  <!-- TAB BAR -->
+  <div id="tabs">
+    <div class="tab active" id="tab-rankings" onclick="showTab('rankings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+      <span>Rankings</span>
+    </div>
+    <div class="tab" id="tab-bleed" onclick="showTab('bleed')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+      <span>Bleed</span>
+    </div>
+    <div class="tab" id="tab-history" onclick="showTab('history')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
+      <span>History</span>
+    </div>
+    <div class="tab" id="tab-weekly" onclick="showTab('weekly')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      <span>Weekly</span>
+    </div>
+    <div class="tab" id="tab-events" onclick="showTab('events')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span>Events</span>
+    </div>
+    <div class="tab" id="tab-deductions" onclick="showTab('deductions')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      <span>Deductions</span>
+    </div>
+    <div class="tab" id="tab-suspects" onclick="showTab('suspects')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v3"/><path d="M11 14h.01"/></svg>
+      <span>Suspects</span>
+    </div>
+    <div class="tab" id="tab-settings" onclick="showTab('settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>Settings</span>
+    </div>
+  </div>
+
   <!-- CONTENT AREA -->
   <div id="content">
     <!-- RANKINGS SCREEN -->
@@ -1050,42 +1086,6 @@ body::before{
         <div class="section-header" style="padding-top:14px">📆 Weekly History</div>
         <div id="wg-history-list"></div>
       </div>
-    </div>
-  </div>
-
-  <!-- TAB BAR -->
-  <div id="tabs">
-    <div class="tab active" id="tab-rankings" onclick="showTab('rankings')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-      <span>Rankings</span>
-    </div>
-    <div class="tab" id="tab-bleed" onclick="showTab('bleed')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
-      <span>Bleed</span>
-    </div>
-    <div class="tab" id="tab-history" onclick="showTab('history')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
-      <span>History</span>
-    </div>
-    <div class="tab" id="tab-weekly" onclick="showTab('weekly')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-      <span>Weekly</span>
-    </div>
-    <div class="tab" id="tab-events" onclick="showTab('events')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      <span>Events</span>
-    </div>
-    <div class="tab" id="tab-deductions" onclick="showTab('deductions')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-      <span>Deductions</span>
-    </div>
-    <div class="tab" id="tab-suspects" onclick="showTab('suspects')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v3"/><path d="M11 14h.01"/></svg>
-      <span>Suspects</span>
-    </div>
-    <div class="tab" id="tab-settings" onclick="showTab('settings')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      <span>Settings</span>
     </div>
   </div>
 </div>
