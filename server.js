@@ -557,16 +557,22 @@ function updateWeeklyGains(json) {
   // Build the set of member IDs currently in the clan.
   const currentMemberIds = new Set((hcClan.member_list || []).map((m) => String(m.id)));
 
-  // If this poll is the very first one establishing baselines for week 1 of
-  // the season (no members tracked yet), reputation is known to be 0 at the
-  // true season start — even if this code only started polling hours late
-  // (e.g. a deploy landing well after the real reset). Using live rep as the
-  // baseline in that case would silently swallow every gain that happened
-  // before the tracker booted. A genuine new joiner later in the week still
-  // falls through to the live-rep baseline below, since their season
-  // contribution really does start when they're first seen.
-  const isInitialWeek1Baseline =
-    weeklyGainsState.weekIndex === 1 && Object.keys(members).length === 0;
+  // Reputation is always 0 at the true start of a season, so week 1's
+  // baseline for every member must always be 0 — this is a hard invariant,
+  // not just something to apply when a member is first seen. That matters
+  // because a baseline can already be wrong in *persisted* state (e.g. a
+  // Firestore doc written before this fix existed, where baselines got set
+  // to live rep captured hours into the season). Restoring that document on
+  // a later restart would otherwise silently carry the bad value forward
+  // forever, since the member would no longer look "new" to this poll. By
+  // re-asserting weekStartRep = 0 for week 1 unconditionally, any such
+  // corrupted baseline self-heals on the very next poll instead of needing
+  // a manual Firestore edit.
+  if (weeklyGainsState.weekIndex === 1) {
+    for (const m of Object.values(members)) {
+      if (m.weekStartRep !== 0) { m.weekStartRep = 0; changed = true; }
+    }
+  }
 
   for (const member of hcClan.member_list || []) {
     const id  = String(member.id);
@@ -577,7 +583,7 @@ function updateWeeklyGains(json) {
       // won't have accrued anything for this (already over) season.
       members[id] = {
         name: member.name,
-        weekStartRep: isInitialWeek1Baseline ? 0 : rep,
+        weekStartRep: weeklyGainsState.weekIndex === 1 ? 0 : rep,
         currentRep: rep,
       };
       changed = true;
