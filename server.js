@@ -837,11 +837,13 @@ function roundStartMs(ts) {
 // per-event since it's an extra Firestore query.
 //
 // A ping only becomes a *confirmed* point once the 30-min round it was made
-// in has fully ended — that's also the window during which it can still be
-// unmarked in-app, so a ping that gets flagged as a false alarm and undone
-// before its round closes is dropped instead of counted. Entries flagged
-// `falseAlarm: true` (see confirmUnmarkBleed in index.html) never count,
-// confirmed or pending, regardless of round.
+// in has fully ended — that's also the exact window during which it can
+// still be unmarked in-app (see markedInCurrentRound in toggleClanBleed), so
+// any ping that gets unmarked before its round closes is dropped instead of
+// counted, whether or not "false alarm" was checked — the checkbox only
+// labels *why* for the History tab. Entries flagged `falseAlarm: true` or
+// `unmarked: true` (see confirmUnmarkBleed in index.html) never count,
+// confirmed or pending.
 async function tallyEventPings(ev) {
   const now  = Date.now();
   const last = lastEventPingTally[ev.id] || 0;
@@ -875,8 +877,8 @@ async function tallyEventPings(ev) {
   const confirmedCounts = {};
   const pendingCounts   = {};
   for (const row of rows) {
-    if (!row.byId) continue;      // log entries written before the Ping Event feature have no linked member id
-    if (row.falseAlarm) continue; // flagged as a false alarm — never counts
+    if (!row.byId) continue;                 // log entries written before the Ping Event feature have no linked member id
+    if (row.falseAlarm || row.unmarked) continue; // cleared before its round closed — never counts, pending or confirmed
 
     const roundEnd = roundStartMs(row.ts) + ROUND_LENGTH_MS;
     if (now >= roundEnd) {
