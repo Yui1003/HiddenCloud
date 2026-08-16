@@ -52,6 +52,7 @@
 .live-pulse.error{background:var(--red);animation:none}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:14px}
+body{position:relative;z-index:0}
 /* Watermark: the Hidden Cloud Village logo, centered and dimmed, sitting
    behind every screen. Fixed + low opacity so it reads as a background
    texture rather than competing with the actual UI on top of it. Screens,
@@ -61,8 +62,9 @@ body::before{
   content:'';
   position:fixed;
   inset:0;
-  background:url('./hidden-cloud-logo.png') center / min(65vw,520px) no-repeat;
-  opacity:0.06;
+  background:var(--bg) url('./hidden-cloud-logo.png') center / min(78vw,560px) no-repeat;
+  background-blend-mode:screen;
+  opacity:0.4;
   pointer-events:none;
   z-index:-1;
 }
@@ -445,6 +447,7 @@ body::before{
    LOGIN SCREEN
    ============================================================ */
 #login-screen{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 20px;overflow-y:auto}
+#login-screen::before{content:'';position:absolute;inset:0;background:var(--bg) url('./hidden-cloud-logo.png') center / min(78vw,560px) no-repeat;background-blend-mode:screen;opacity:0.4;pointer-events:none;z-index:-1}
 .login-card{width:100%;max-width:380px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:30px 24px;display:flex;flex-direction:column;gap:20px}
 .login-logo{width:60px;height:60px;object-fit:contain;border-radius:16px;display:block;margin:0 auto;box-shadow:0 8px 28px rgba(240,165,0,0.35)}
 .login-branding{text-align:center}
