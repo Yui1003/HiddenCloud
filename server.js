@@ -357,7 +357,7 @@ function currentRoundId(now = new Date()) {
 
 // ── Push delivery ─────────────────────────────────────────────────────────────
 
-function sendPush(payload, excludeEndpoint = null, ttl = 300) {
+function sendPush(payload, excludeEndpoint = null, ttl = 300, type = 'bleeding') {
   const body = JSON.stringify({
     ...payload,
     icon: './pwa-icon-192.png',
@@ -368,34 +368,43 @@ function sendPush(payload, excludeEndpoint = null, ttl = 300) {
   //                device is offline. Default 300 s (5 min). Confirmed = 600 s.
   const pushOptions = { urgency: 'high', TTL: ttl };
 
-  const targets = subscriptions.filter((s) => s.endpoint !== excludeEndpoint);
-  console.log(`[push] Sending "${payload.title}" to ${targets.length} subscriber(s) (TTL=${ttl}s)`);
+  // Per-subscription notification preferences (set by the client's Settings
+  // toggles). Subscriptions predating this feature have no `prefs` field —
+  // treated as bleeding:true (that was the only toggle back then) and
+  // events:false (new feature, opt-in only). `type: 'test'` bypasses prefs
+  // entirely so the debug endpoint always reaches every subscriber.
+  const matchesType = (s) => {
+    if (type === 'test') return true;
+    if (type === 'event') return !!(s.prefs && s.prefs.events === true);
+    return !s.prefs || s.prefs.bleeding !== false;
+  };
 
-  const sends = subscriptions.map(async (subscription) => {
-    if (subscription.endpoint === excludeEndpoint) return subscription;
+  const targets = subscriptions.filter((s) => s.endpoint !== excludeEndpoint && matchesType(s));
+  console.log(`[push] Sending "${payload.title}" (${type}) to ${targets.length} subscriber(s) (TTL=${ttl}s)`);
+
+  const sends = targets.map(async (subscription) => {
     try {
       await webpush.sendNotification(subscription, body, pushOptions);
       console.log(`[push] ✓ delivered to ${subscription.endpoint.slice(0, 60)}…`);
-      return subscription;
+      return { endpoint: subscription.endpoint, expired: false };
     } catch (error) {
       const status = error.statusCode;
       console.warn(`[push] ✗ delivery failed (HTTP ${status || '?'}): ${error.message || ''} → endpoint: ${subscription.endpoint.slice(0, 60)}…`);
       // 404/410 = endpoint gone; 401/403 = bad VAPID key / revoked → drop it
-      if (status === 404 || status === 410 || status === 401 || status === 403) {
-        removeSubscriptionFromFirestore(subscription.endpoint).catch(() => {});
-        return null;
-      }
-      return subscription;
+      const expired = status === 404 || status === 410 || status === 401 || status === 403;
+      if (expired) removeSubscriptionFromFirestore(subscription.endpoint).catch(() => {});
+      return { endpoint: subscription.endpoint, expired };
     }
   });
 
-  return Promise.all(sends).then((remaining) => {
-    const kept = remaining.filter(Boolean);
-    if (kept.length !== subscriptions.length) {
-      console.log(`[push] Dropped ${subscriptions.length - kept.length} expired subscription(s). ${kept.length} remaining.`);
+  return Promise.all(sends).then((results) => {
+    const expiredEndpoints = new Set(results.filter((r) => r.expired).map((r) => r.endpoint));
+    if (expiredEndpoints.size) {
+      subscriptions = subscriptions.filter((s) => !expiredEndpoints.has(s.endpoint));
+      writeJson(SUBSCRIPTIONS_FILE, subscriptions);
+      console.log(`[push] Dropped ${expiredEndpoints.size} expired subscription(s). ${subscriptions.length} remaining.`);
     }
-    subscriptions = kept;
-    writeJson(SUBSCRIPTIONS_FILE, subscriptions);
+    return targets.length;
   });
 }
 
@@ -948,6 +957,85 @@ const EVENT_PING_TALLY_INTERVAL_MS = POLL_INTERVAL_MS;  // how often to re-tally
 const EVENTS_LIST_REFRESH_MS       = 30_000;      // how often to re-read the events collection
 const EVENT_GAINS_GRACE_MS         = 10 * 60_000; // keep tracking 10 min after an event ends
 
+// ── Event start/end push reminders ────────────────────────────────────────────
+// Milestones fire relative to each event's startTs/endTs. `sent` milestones are
+// persisted per event so a restart never re-fires one, and are reset whenever
+// an event's startTs/endTs is edited (see checkEventNotifications below).
+const EVENT_NOTIF_STATE_FILE = path.join(DATA_DIR, 'event-notif-state.json');
+const EVENT_NOTIF_GRACE_MS   = 2 * 60_000; // if a milestone is missed (server downtime) by more than this, skip the push but still mark it sent
+let eventNotifState = readJson(EVENT_NOTIF_STATE_FILE, {}); // eventId → { startTs, endTs, sent: [milestoneId,...] }
+
+const EVENT_NOTIF_MILESTONES = [
+  { id: 'start-30', anchor: 'startTs', minutesBefore: 30 },
+  { id: 'start-10', anchor: 'startTs', minutesBefore: 10 },
+  { id: 'start-5',  anchor: 'startTs', minutesBefore: 5  },
+  { id: 'start-0',  anchor: 'startTs', minutesBefore: 0  },
+  { id: 'end-30',   anchor: 'endTs',   minutesBefore: 30 },
+  { id: 'end-10',   anchor: 'endTs',   minutesBefore: 10 },
+  { id: 'end-5',    anchor: 'endTs',   minutesBefore: 5  },
+  { id: 'end-0',    anchor: 'endTs',   minutesBefore: 0  },
+];
+
+function eventNotifMessage(ev, milestone) {
+  const title = ev.title || 'Event';
+  switch (milestone.id) {
+    case 'start-30': return { title: `\u23F0 ${title}`, body: 'Starts in 30 minutes!' };
+    case 'start-10': return { title: `\u23F0 ${title}`, body: 'Starts in 10 minutes!' };
+    case 'start-5':  return { title: `\u23F0 ${title}`, body: 'Starts in 5 minutes \u2014 get ready!' };
+    case 'start-0':  return { title: `\uD83D\uDFE2 ${title}`, body: 'The event has started!' };
+    case 'end-30':   return { title: `\u23F3 ${title}`, body: 'Ends in 30 minutes.' };
+    case 'end-10':   return { title: `\u23F3 ${title}`, body: 'Ends in 10 minutes.' };
+    case 'end-5':    return { title: `\u23F3 ${title}`, body: 'Ends in 5 minutes \u2014 final push!' };
+    case 'end-0':    return { title: `\uD83C\uDFC1 ${title}`, body: 'The event has ended.' };
+    default:         return { title, body: '' };
+  }
+}
+
+function checkEventNotifications() {
+  const now = Date.now();
+  let changed = false;
+
+  for (const ev of cachedEvents) {
+    if (typeof ev.startTs !== 'number' || typeof ev.endTs !== 'number') continue;
+
+    let st = eventNotifState[ev.id];
+    // Event was created, or its schedule was edited since we last saw it —
+    // (re)baseline so milestones are computed against the current start/end.
+    if (!st || st.startTs !== ev.startTs || st.endTs !== ev.endTs) {
+      st = { startTs: ev.startTs, endTs: ev.endTs, sent: [] };
+      eventNotifState[ev.id] = st;
+      changed = true;
+    }
+
+    for (const milestone of EVENT_NOTIF_MILESTONES) {
+      if (st.sent.includes(milestone.id)) continue;
+      const thresholdTs = ev[milestone.anchor] - milestone.minutesBefore * 60_000;
+      if (now < thresholdTs) continue; // not due yet
+
+      st.sent.push(milestone.id);
+      changed = true;
+
+      // Missed it by too much (e.g. server was down) — mark as sent without
+      // pushing a stale/misleading reminder.
+      if (now - thresholdTs <= EVENT_NOTIF_GRACE_MS) {
+        const { title, body } = eventNotifMessage(ev, milestone);
+        sendPush(
+          { title, body, tag: `hidden-cloud-event-${ev.id}-${milestone.id}` },
+          null, 300, 'event'
+        ).catch((e) => console.warn(`[events] notif push failed for ${ev.id}/${milestone.id}:`, e.message));
+      }
+    }
+  }
+
+  // Garbage collect state for events that have fallen out of the tracking window.
+  const liveIds = new Set(cachedEvents.map((e) => e.id));
+  for (const id of Object.keys(eventNotifState)) {
+    if (!liveIds.has(id)) { delete eventNotifState[id]; changed = true; }
+  }
+
+  if (changed) writeJson(EVENT_NOTIF_STATE_FILE, eventNotifState);
+}
+
 let cachedEvents           = [];   // events worth tracking right now (started, not long-ended)
 let lastEventsListFetch    = 0;
 let eventGainsState        = readJson(EVENT_GAINS_FILE, {}); // eventId → { members: { id → {name,startRep,currentRep,pings} } }
@@ -1319,6 +1407,7 @@ async function pollForPossibleBleeding() {
 
     await refreshCachedEvents();
     updateEventGains(json);
+    checkEventNotifications();
 
     const bleedingClans = recordGainEvents(json);
     if (bleedingClans.length > POSSIBLE_BLEEDING_CLAN_THRESHOLD) {
@@ -1332,7 +1421,7 @@ async function pollForPossibleBleeding() {
           title: '⚠ Possible Bleeding',
           body: `There have been ${bleedingClans.length} clans in Gaining (Bleed) status. Bleeding occurred, hurry and find who is bleeding!`,
           tag: `hidden-cloud-possible-bleeding-${roundId}`,
-        });
+        }, null, 300, 'bleeding');
       }
     } else {
       detectorState.possibleBleedSince = null;
@@ -1558,7 +1647,7 @@ app.post('/api/push/confirmed', async (req, res) => {
     title: '🚨 Confirmed Bleeding',
     body: `The clan "${clanName}" is bleeding! Hurry up and attack!`,
     tag: `hidden-cloud-confirmed-bleeding-${eventKey}`,
-  }, typeof req.body?.excludeEndpoint === 'string' ? req.body.excludeEndpoint : null, 600);
+  }, typeof req.body?.excludeEndpoint === 'string' ? req.body.excludeEndpoint : null, 600, 'bleeding');
   res.json({ ok: true });
 });
 
@@ -1853,12 +1942,12 @@ app.post('/api/push/test', async (req, res) => {
   if (subscriptions.length === 0) {
     return res.json({ ok: false, message: 'No subscribers stored. Open the app, enable notifications, then try again.' });
   }
-  await sendPush({
+  const sent = await sendPush({
     title: '🔔 Push Test',
     body: `Test push sent at ${new Date().toLocaleTimeString()} to ${subscriptions.length} subscriber(s). If you see this with the app closed, push is working!`,
     tag: `hidden-cloud-push-test-${Date.now()}`,
-  });
-  res.json({ ok: true, subscribers: subscriptions.length });
+  }, null, 300, 'test');
+  res.json({ ok: true, subscribers: sent });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
