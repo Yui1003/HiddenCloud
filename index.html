@@ -863,6 +863,13 @@ body::before{
           </div>
           <div class="settings-row">
             <div>
+              <div class="settings-row-label">Event Reminders</div>
+              <div class="settings-row-sub">Get notified when a scheduled event starts/ends, and 30, 10 &amp; 5 minutes before each</div>
+            </div>
+            <div id="event-notif-toggle" class="settings-toggle" onclick="toggleEventNotif()"></div>
+          </div>
+          <div class="settings-row">
+            <div>
               <div class="settings-row-label">Live Polling</div>
               <div class="settings-row-sub" id="next-refresh-label">&#8212;</div>
             </div>
@@ -1328,6 +1335,7 @@ let state = {
   currentDetailClanId: null,
   settings: {
     notificationsEnabled: false,
+    eventNotificationsEnabled: false,
     yourClanId: PERMANENT_CLAN_ID,
   },
   // Current in-progress 30-min round (aligned to game's fixed HH:00 / HH:30 marks)
@@ -1456,6 +1464,8 @@ function saveSetting(key, val) {
 function applySettings() {
   const tog = document.getElementById('notif-toggle');
   if(tog) tog.className = 'settings-toggle' + (state.settings.notificationsEnabled ? ' on' : '');
+  const evTog = document.getElementById('event-notif-toggle');
+  if(evTog) evTog.className = 'settings-toggle' + (state.settings.eventNotificationsEnabled ? ' on' : '');
   const ycn = document.getElementById('setting-your-clan-name');
   if(ycn) {
     if(state.settings.yourClanId && state.data) {
@@ -4091,7 +4101,7 @@ function startLivePolling() {
 
 function startLiveStatusTick() {
   if (liveStatusTimer) clearInterval(liveStatusTimer);
-  liveStatusTimer = setInterval(() => { updateLiveStatus(); tickChangeAgo(); }, 1000);
+  liveStatusTimer = setInterval(() => { updateLiveStatus(); tickChangeAgo(); checkEventNotificationsLocal(); }, 1000);
   updateLiveStatus();
 }
 
@@ -4152,7 +4162,44 @@ function toggleNotif() {
     state.settings.notificationsEnabled = false;
     saveToStorage();
     applySettings();
-    unsubscribeFromPushNotifications().catch(e => console.warn('Push unsubscribe error:', e));
+    if (state.settings.eventNotificationsEnabled) {
+      // Still want event reminders on this device — keep the subscription,
+      // just update its prefs so the server stops sending bleeding pushes.
+      subscribeForPushNotifications().catch(e => console.warn('Push prefs update error:', e));
+    } else {
+      unsubscribeFromPushNotifications().catch(e => console.warn('Push unsubscribe error:', e));
+    }
+  }
+}
+
+function toggleEventNotif() {
+  if (!state.settings.eventNotificationsEnabled) {
+    if (!('Notification' in window)) {
+      window.alert('This browser does not support notifications.');
+      return;
+    }
+    Notification.requestPermission().then(p => {
+      if (p === 'granted') {
+        state.settings.eventNotificationsEnabled = true;
+        saveToStorage();
+        applySettings();
+        subscribeForPushNotifications().catch(e => {
+          console.error('Push subscription error:', e);
+          window.alert('Background push notifications could not be set up on this device.\n\nError: ' + (e && e.message ? e.message : e) + '\n\nYou will still get reminders while this tab is open.');
+        });
+      }
+    });
+  } else {
+    state.settings.eventNotificationsEnabled = false;
+    saveToStorage();
+    applySettings();
+    if (state.settings.notificationsEnabled) {
+      // Still want bleeding notifications on this device — keep the
+      // subscription, just update its prefs so events pushes stop.
+      subscribeForPushNotifications().catch(e => console.warn('Push prefs update error:', e));
+    } else {
+      unsubscribeFromPushNotifications().catch(e => console.warn('Push unsubscribe error:', e));
+    }
   }
 }
 
@@ -4160,7 +4207,7 @@ const POSSIBLE_BLEEDING_CLAN_THRESHOLD = 2;
 const POSSIBLE_BLEEDING_DELAY_MS = 10000;
 
 function showNotification(title, body, tag) {
-  if (!state.settings.notificationsEnabled) return;
+  if (!state.settings.notificationsEnabled && !state.settings.eventNotificationsEnabled) return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const options = {
     body,
@@ -4216,6 +4263,71 @@ function checkBleedingNotifications() {
   }
 }
 
+// ── Event reminders — local in-tab fallback ────────────────────────────────
+// The server pushes these in the background (see checkEventNotifications in
+// server.js) for any subscribed device, even with the app closed. This is
+// only a fallback for browsers that couldn't complete push setup, so it only
+// runs while the tab is open and only fires when there's no active push
+// subscription (otherwise the server's push already covers it).
+const EVENT_NOTIF_MILESTONES_CLIENT = [
+  { id: 'start-30', anchor: 'startTs', minutesBefore: 30 },
+  { id: 'start-10', anchor: 'startTs', minutesBefore: 10 },
+  { id: 'start-5',  anchor: 'startTs', minutesBefore: 5  },
+  { id: 'start-0',  anchor: 'startTs', minutesBefore: 0  },
+  { id: 'end-30',   anchor: 'endTs',   minutesBefore: 30 },
+  { id: 'end-10',   anchor: 'endTs',   minutesBefore: 10 },
+  { id: 'end-5',    anchor: 'endTs',   minutesBefore: 5  },
+  { id: 'end-0',    anchor: 'endTs',   minutesBefore: 0  },
+];
+const eventLocalNotifiedKeys = new Set();
+let lastLocalEventsRefetch = 0;
+
+function eventNotifMessageClient(ev, milestone) {
+  const title = ev.title || 'Event';
+  switch (milestone.id) {
+    case 'start-30': return { title: '\u23F0 ' + title, body: 'Starts in 30 minutes!' };
+    case 'start-10': return { title: '\u23F0 ' + title, body: 'Starts in 10 minutes!' };
+    case 'start-5':  return { title: '\u23F0 ' + title, body: 'Starts in 5 minutes \u2014 get ready!' };
+    case 'start-0':  return { title: '\uD83D\uDFE2 ' + title, body: 'The event has started!' };
+    case 'end-30':   return { title: '\u23F3 ' + title, body: 'Ends in 30 minutes.' };
+    case 'end-10':   return { title: '\u23F3 ' + title, body: 'Ends in 10 minutes.' };
+    case 'end-5':    return { title: '\u23F3 ' + title, body: 'Ends in 5 minutes \u2014 final push!' };
+    case 'end-0':    return { title: '\uD83C\uDFC1 ' + title, body: 'The event has ended.' };
+    default:         return { title, body: '' };
+  }
+}
+
+function checkEventNotificationsLocal() {
+  if (!state.settings.eventNotificationsEnabled) return;
+  if (pushSubscriptionActive) return; // server-side push already covers this device
+
+  // Keep eventsData reasonably fresh even if the Events tab hasn't been
+  // opened this session (loadEventsFromFirestore has its own 60s TTL cache).
+  if (db && Date.now() - lastLocalEventsRefetch > 30_000) {
+    lastLocalEventsRefetch = Date.now();
+    loadEventsFromFirestore();
+  }
+  if (!eventsData || !eventsData.length) return;
+
+  const now = Date.now();
+  for (const ev of eventsData) {
+    if (typeof ev.startTs !== 'number' || typeof ev.endTs !== 'number') continue;
+    if (now > ev.endTs + 10 * 60_000) continue; // long over — not worth checking
+
+    for (const milestone of EVENT_NOTIF_MILESTONES_CLIENT) {
+      const key = ev.id + ':' + milestone.id;
+      if (eventLocalNotifiedKeys.has(key)) continue;
+      const thresholdTs = ev[milestone.anchor] - milestone.minutesBefore * 60_000;
+      if (now < thresholdTs) continue;
+      eventLocalNotifiedKeys.add(key);
+      if (now - thresholdTs <= 2 * 60_000) {
+        const { title, body } = eventNotifMessageClient(ev, milestone);
+        showNotification(title, body, 'hidden-cloud-event-' + ev.id + '-' + milestone.id);
+      }
+    }
+  }
+}
+
 async function subscribeForPushNotifications() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   const registration = window.hcldServiceWorkerRegistration || await navigator.serviceWorker.ready;
@@ -4252,11 +4364,21 @@ async function subscribeForPushNotifications() {
   const response = await fetch('/api/push/subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...subData, userId: loggedInUserId }),
+    body: JSON.stringify({ ...subData, userId: loggedInUserId, prefs: currentPushPrefs() }),
   });
   if (!response.ok) throw new Error('Could not save this device for push notifications.');
   pushSubscriptionActive = true;
   pushSubscriptionEndpoint = subscription.endpoint;
+}
+
+// Which notification types this device wants to receive — sent alongside the
+// push subscription so the server can filter deliveries per-toggle instead of
+// blasting every category to every subscriber.
+function currentPushPrefs() {
+  return {
+    bleeding: !!state.settings.notificationsEnabled,
+    events: !!state.settings.eventNotificationsEnabled,
+  };
 }
 
 async function unsubscribeFromPushNotifications() {
@@ -4275,7 +4397,7 @@ async function unsubscribeFromPushNotifications() {
 }
 
 async function syncPushSubscription() {
-  if (!state.settings.notificationsEnabled ||
+  if ((!state.settings.notificationsEnabled && !state.settings.eventNotificationsEnabled) ||
       !('Notification' in window) ||
       Notification.permission !== 'granted' ||
       !('serviceWorker' in navigator) ||
@@ -4287,7 +4409,7 @@ async function syncPushSubscription() {
     const response = await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...subData, userId: loggedInUserId }),
+      body: JSON.stringify({ ...subData, userId: loggedInUserId, prefs: currentPushPrefs() }),
     });
     if (!response.ok) throw new Error('Could not re-sync this device for push notifications.');
     pushSubscriptionActive = true;
@@ -4333,7 +4455,7 @@ function confirmReset() {
   document.getElementById('modal-sub').textContent = 'This will reset notification settings and all round history. Hidden Cloud Village remains your permanent clan.';
   document.getElementById('modal-confirm-btn').textContent = 'Reset Everything';
   document.getElementById('modal-confirm-btn').onclick = () => {
-    state.settings = { notificationsEnabled: false, yourClanId: PERMANENT_CLAN_ID };
+    state.settings = { notificationsEnabled: false, eventNotificationsEnabled: false, yourClanId: PERMANENT_CLAN_ID };
     state.roundHistory = [];
     state.round = { id: null, startTs: null, startSnap: null };
     state.prevData = null;
