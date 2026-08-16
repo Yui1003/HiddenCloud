@@ -22,6 +22,49 @@ const DISCORD_WEBHOOK_CACHE_TTL_MS = 60 * 60_000;  // 1 hour
 const WEEKLY_GAINS_SYNC_INTERVAL_MS = 5 * 60_000;  // Write weeklyGains/777 at most every 5 min
 const WEEKLY_GAINS_RESTORE_RETRY_MS = 60_000;       // Retry a failed baseline restore
 const CONFIRMED_BLEEDS_FALLBACK_POLL_MS = 30_000;  // Re-read confirmedBleeds every 30 s as fallback
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;           // one weekly-gains cut = 7 days
+
+// One-time migration anchor: the season live as of this deploy started at
+// Aug 16, 2026, 1:00 PM PH time (PH = UTC+8, so 05:00 UTC). Auto-detecting a
+// season's start (from when its season.id first appears on a poll) only
+// works going forward, so this hardcoded value seeds the *current* season's
+// true start precisely instead of using "whenever this code first deploys"
+// (which would shift every weekly cut later by however many hours/days late
+// the deploy happens to land — whether that's the very first poll after
+// deploy, or a season rollover the old code already saw and recorded without
+// a precise start). Bounded to ~5 weeks past that date so it can never
+// accidentally apply to a later season once real time has moved on; every
+// season after this one is anchored automatically (from its own rollover
+// poll) same as before.
+const KNOWN_CURRENT_SEASON_START_MS = Date.UTC(2026, 7, 16, 5, 0, 0);
+const KNOWN_ANCHOR_VALID_UNTIL_MS   = KNOWN_CURRENT_SEASON_START_MS + 35 * 24 * 60 * 60 * 1000;
+
+// Picks the precise start of the season currently being (re)anchored. Uses
+// the hardcoded known start while we're still within its validity window
+// (covers both a fresh/migrating state and the rollover poll that first
+// notices this season began), otherwise falls back to "now" — accurate to
+// one poll cycle (~5s) for any season after this one.
+function resolveSeasonStartTs(now, seasonEndTs) {
+  if (now < KNOWN_ANCHOR_VALID_UNTIL_MS && KNOWN_CURRENT_SEASON_START_MS < seasonEndTs) {
+    return KNOWN_CURRENT_SEASON_START_MS;
+  }
+  return now;
+}
+
+// Given a resolved season start, figures out which weekly block "now" falls
+// into and returns a freshly-seeded state for it. Used both when a season
+// rollover is first detected and when migrating/starting fresh mid-season
+// (e.g. this deploy landing hours after the real 1PM PH reset already
+// happened) — either way "now" may already be into week 2+.
+function seedSeasonState(seasonId, seasonEndTs, now) {
+  const seasonStartTs = resolveSeasonStartTs(now, seasonEndTs);
+  const elapsed   = Math.max(0, now - seasonStartTs);
+  const weekIndex = Math.floor(elapsed / WEEK_MS) + 1;
+  const weekStartTs = seasonStartTs + (weekIndex - 1) * WEEK_MS;
+  const next = startNewWeek(seasonId, seasonEndTs, weekStartTs, weekIndex);
+  next.seasonStartTs = seasonStartTs;
+  return next;
+}
 
 // Firebase project config (same project the client already uses)
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
@@ -345,7 +388,7 @@ let weeklyGainsRestoreRetryTimer = null;
 
 // A Replit server can restart while Firestore is temporarily unavailable. Do
 // not let the first live poll turn the current reputation into a new baseline
-// and then write that reset back over the Monday baseline in Firestore.
+// and then write that reset back over the real weekly baseline in Firestore.
 function scheduleWeeklyGainsRestoreRetry() {
   if (weeklyGainsWriteAllowed || weeklyGainsRestoreRetryTimer) return;
   weeklyGainsRestoreRetryTimer = setTimeout(async () => {
@@ -369,49 +412,94 @@ function toPhDateStr(utcMs) {
   return new Date(utcMs + PH_OFFSET_MS).toISOString().slice(0, 10);
 }
 
-// "Weekly" gains are actually tracked per in-game season, not per calendar
-// week — seasons don't line up with Monday–Sunday and can end mid-day
-// (e.g. ~1PM PH), so a fixed calendar boundary would keep counting gains
-// after the season (and its rankings) had already ended. `json.season` is
-// read straight from the same rankings poll: `season.id` tells us when a
+// Weekly gains are cut into real 7-day blocks, anchored to when the current
+// season started (not a fixed Monday–Sunday calendar week, since seasons
+// don't line up with that and can end mid-day, e.g. ~1PM PH). `json.season`
+// is read straight from the same rankings poll: `season.id` tells us when a
 // new season has begun, and `season.end_time_ts` (Unix seconds) tells us
 // exactly when to stop counting for the one that's ending.
+//
+// Anchoring: the API never exposes a season's start time, so it's captured
+// the moment a new season.id is first observed (accurate to one poll cycle,
+// ~5s). Every later weekly boundary for that season is `seasonStartTs + N *
+// WEEK_MS`, so cuts land on the same time-of-day the season began and never
+// drift. If a season's length isn't an exact multiple of 7 days, the final
+// week of that season is simply shorter — it's still cut and archived at
+// seasonEndTs like any other week.
+function buildWeekEndTs(weekStartTs, seasonEndTs) {
+  return Math.min(weekStartTs + WEEK_MS, seasonEndTs);
+}
+
+function startNewWeek(seasonId, seasonEndTs, weekStartTs, weekIndex) {
+  const weekEndTs = buildWeekEndTs(weekStartTs, seasonEndTs);
+  const weekStartLabel = toPhDateStr(weekStartTs);
+  return {
+    weekKey: weekStartLabel, weekStartLabel, weekEndLabel: toPhDateStr(weekEndTs),
+    seasonId, seasonEndTs, seasonStartTs: null, // seasonStartTs filled in by caller
+    weekIndex, weekStartTs, weekEndTs,
+    members: {},
+  };
+}
+
 function updateWeeklyGains(json) {
   const hcClan = (json.clans || []).find((c) => c.id === HIDDEN_CLOUD_CLAN_ID);
   if (!hcClan) return;
   const season = json.season;
   if (!season || !season.id || !season.end_time_ts) return; // no season data this poll — try again next poll
 
-  const now          = Date.now();
-  const seasonId      = season.id;
-  const seasonEndTs   = Number(season.end_time_ts) * 1000; // seconds → ms
+  const now         = Date.now();
+  const seasonId     = season.id;
+  const seasonEndTs  = Number(season.end_time_ts) * 1000; // seconds → ms
 
   if (weeklyGainsState.seasonId && weeklyGainsState.seasonId !== seasonId) {
-    // Season rollover — archive the completed season, reset baselines fresh.
+    // Season rollover — archive whatever week was in progress (possibly a
+    // short final week if the season ended mid-week), then start the new
+    // season. seedSeasonState uses the known 1PM PH anchor if this is that
+    // transition, otherwise "now".
     archiveWeekToFirestore(weeklyGainsState).catch((e) =>
       console.warn('[weekly] Archive error:', e.message));
-    const weekStartLabel = toPhDateStr(now);
-    weeklyGainsState = {
-      weekKey: weekStartLabel, weekStartLabel, weekEndLabel: toPhDateStr(seasonEndTs),
-      seasonId, seasonEndTs, members: {},
-    };
+    weeklyGainsState = seedSeasonState(seasonId, seasonEndTs, now);
   } else if (!weeklyGainsState.seasonId) {
-    // First time we've seen season data for this run — start tracking now
-    // (covers a fresh install; a mid-season server restart is handled by
-    // restoreWeeklyGainsFromFirestore before this ever runs).
-    weeklyGainsState.seasonId    = seasonId;
-    weeklyGainsState.seasonEndTs = seasonEndTs;
-    if (!weeklyGainsState.weekKey) {
-      const weekStartLabel = toPhDateStr(now);
-      weeklyGainsState.weekKey        = weekStartLabel;
-      weeklyGainsState.weekStartLabel = weekStartLabel;
-      weeklyGainsState.weekEndLabel   = toPhDateStr(seasonEndTs);
+    // First time we've seen season data for this run.
+    // (A mid-season server restart is handled by restoreWeeklyGainsFromFirestore
+    // before this ever runs, so this path only fires on a true fresh start.)
+    const hasMigratedAnchor = typeof weeklyGainsState.weekStartTs === 'number';
+    if (!hasMigratedAnchor) {
+      // Fresh install, or migrating from the pre-weekly-cuts state shape.
+      weeklyGainsState = seedSeasonState(seasonId, seasonEndTs, now);
+    } else {
+      weeklyGainsState.seasonId    = seasonId;
+      weeklyGainsState.seasonEndTs = seasonEndTs;
+      if (!weeklyGainsState.members) weeklyGainsState.members = {};
     }
-    if (!weeklyGainsState.members) weeklyGainsState.members = {};
   } else if (weeklyGainsState.seasonEndTs !== seasonEndTs) {
-    // Same season, but its end time shifted (rare) — keep the label in sync.
+    // Same season, but its end time shifted (rare) — keep labels in sync.
     weeklyGainsState.seasonEndTs  = seasonEndTs;
-    weeklyGainsState.weekEndLabel = toPhDateStr(seasonEndTs);
+    weeklyGainsState.weekEndTs    = buildWeekEndTs(weeklyGainsState.weekStartTs, seasonEndTs);
+    weeklyGainsState.weekEndLabel = toPhDateStr(weeklyGainsState.weekEndTs);
+  }
+
+  // Weekly cut: once the current week's boundary has passed (and the season
+  // itself hasn't ended yet), archive it and start the next 7-day block. A
+  // loop (not a single if) so a long server outage catches up to the real
+  // current week in one poll instead of needing one poll cycle per missed week.
+  while (now >= weeklyGainsState.weekEndTs && now < weeklyGainsState.seasonEndTs) {
+    archiveWeekToFirestore(weeklyGainsState).catch((e) =>
+      console.warn('[weekly] Archive error:', e.message));
+    const prevMembers = weeklyGainsState.members;
+    const next = startNewWeek(
+      weeklyGainsState.seasonId,
+      weeklyGainsState.seasonEndTs,
+      weeklyGainsState.weekEndTs, // next week starts exactly where the last one ended
+      weeklyGainsState.weekIndex + 1,
+    );
+    next.seasonStartTs = weeklyGainsState.seasonStartTs;
+    // Re-baseline every currently-known member to their rep right now, so
+    // the new week starts counting from zero.
+    for (const [id, m] of Object.entries(prevMembers)) {
+      next.members[id] = { name: m.name, weekStartRep: m.currentRep, currentRep: m.currentRep };
+    }
+    weeklyGainsState = next;
   }
 
   // Once the season has actually ended, freeze gains — the rankings API can
@@ -508,7 +596,11 @@ async function syncWeeklyGainsToFirestore() {
     weekKey:        weeklyGainsState.weekKey,
     weekStartLabel: weeklyGainsState.weekStartLabel,
     weekEndLabel:   weeklyGainsState.weekEndLabel,
+    weekIndex:      weeklyGainsState.weekIndex,
+    weekStartTs:    weeklyGainsState.weekStartTs,
+    weekEndTs:      weeklyGainsState.weekEndTs,
     seasonId:       weeklyGainsState.seasonId,
+    seasonStartTs:  weeklyGainsState.seasonStartTs,
     seasonEndTs:    weeklyGainsState.seasonEndTs,
     clanId:         777,
     lastUpdated:    Date.now(),
@@ -525,13 +617,15 @@ async function syncWeeklyGainsToFirestore() {
 // is stale the way the old Monday-Sunday version could. Instead:
 //   A) Local file has no season yet → take Firestore's copy as a best-effort
 //      starting point; the first live poll's rollover check (in
-//      updateWeeklyGains) will correct it if it turns out to be a finished season.
-//   B) Local file's seasonId matches Firestore's → MERGE: use the lower
-//      weekStartRep per member. This corrects baselines that were wrongly
-//      set to "current rep" (e.g. after a server restart mid-season lost
-//      the real baseline).
-//   C) Local file's seasonId differs from Firestore's → local was actively
-//      being updated more recently, so keep it as-is.
+//      updateWeeklyGains) will correct it if it turns out to be a finished season/week.
+//   B) Local file's seasonId AND weekStartTs both match Firestore's → MERGE:
+//      use the lower weekStartRep per member. This corrects baselines that
+//      were wrongly set to "current rep" (e.g. after a server restart mid-week
+//      lost the real baseline).
+//   C) Local file's seasonId differs, or the seasonId matches but weekStartTs
+//      doesn't (a weekly cut happened on one instance but not the other) →
+//      whichever side has the later weekStartTs is the more advanced state;
+//      keep that one as-is rather than merging mismatched weeks' members.
 //
 // After reconciliation, the corrected state is immediately written back to Firestore
 // so any other running instance can benefit from the most accurate baselines.
@@ -576,17 +670,28 @@ async function restoreWeeklyGainsFromFirestore() {
       return;
     }
 
-    const fsSeasonId = fsVal(doc.fields.seasonId);
+    const fsSeasonId   = fsVal(doc.fields.seasonId);
+    const fsWeekStartTs = fsVal(doc.fields.weekStartTs);
 
-    if (weeklyGainsState.seasonId && weeklyGainsState.seasonId !== fsSeasonId) {
-      // Case C — local state is more recent than the Firestore snapshot.
-      console.log('[weekly] Firestore doc is from a different season — local state kept as-is.');
-      weeklyGainsWriteAllowed = true;
-      return;
-    }
+    const sameWeek = weeklyGainsState.seasonId === fsSeasonId &&
+      weeklyGainsState.weekStartTs === fsWeekStartTs;
 
-    if (weeklyGainsState.seasonId && weeklyGainsState.seasonId === fsSeasonId) {
-      // Case B — same season: merge, keeping the safer (lower) weekStartRep.
+    if (weeklyGainsState.seasonId && !sameWeek) {
+      // Case C — different season, or same season but a different weekly
+      // block. Keep whichever side is further along (later weekStartTs);
+      // don't merge members across mismatched weeks.
+      const localIsNewer = !fsWeekStartTs ||
+        (typeof weeklyGainsState.weekStartTs === 'number' && weeklyGainsState.weekStartTs >= fsWeekStartTs);
+      if (localIsNewer) {
+        console.log('[weekly] Firestore doc is from an earlier week/season — local state kept as-is.');
+        weeklyGainsWriteAllowed = true;
+        return;
+      }
+      console.log('[weekly] Firestore doc is from a later week/season — adopting it.');
+      // Fall through to Case A's adoption logic below using the Firestore copy.
+    } else if (weeklyGainsState.seasonId && sameWeek) {
+      // Case B — same season, same weekly block: merge, keeping the safer
+      // (lower) weekStartRep.
       const rawMembers = fsVal(doc.fields.members) || {};
       let corrected = 0;
       for (const [id, fsm] of Object.entries(rawMembers)) {
@@ -595,7 +700,7 @@ async function restoreWeeklyGainsFromFirestore() {
           weeklyGainsState.members[id] = { name: fsm.name, weekStartRep: fsm.weekStartRep, currentRep: fsm.currentRep };
           corrected++;
         } else {
-          // The baseline is immutable for the season. If two server instances
+          // The baseline is immutable for the week. If two server instances
           // disagree, the lower value is the only safe choice because it
           // preserves all gains already observed.
           if (typeof fsm.weekStartRep === 'number' && fsm.weekStartRep < local.weekStartRep) {
@@ -632,12 +737,16 @@ async function restoreWeeklyGainsFromFirestore() {
       weekKey:        fsVal(doc.fields.weekKey),
       weekStartLabel: fsVal(doc.fields.weekStartLabel),
       weekEndLabel:   fsVal(doc.fields.weekEndLabel),
+      weekIndex:      fsVal(doc.fields.weekIndex),
+      weekStartTs:    fsVal(doc.fields.weekStartTs),
+      weekEndTs:      fsVal(doc.fields.weekEndTs),
       seasonId:       fsSeasonId,
+      seasonStartTs:  fsVal(doc.fields.seasonStartTs),
       seasonEndTs:    fsVal(doc.fields.seasonEndTs),
       members,
     };
     writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
-    console.log(`[weekly] Restored ${Object.keys(members).length} member baselines from Firestore (season ${fsSeasonId}).`);
+    console.log(`[weekly] Restored ${Object.keys(members).length} member baselines from Firestore (season ${fsSeasonId}, week ${weeklyGainsState.weekIndex}).`);
     weeklyGainsWriteAllowed = true;
   } catch (e) {
     console.warn('[weekly] Restore error:', e.message);
@@ -659,7 +768,11 @@ async function archiveWeekToFirestore(st) {
     weekKey:        st.weekKey,
     weekStartLabel: st.weekStartLabel,
     weekEndLabel:   st.weekEndLabel,
+    weekIndex:      st.weekIndex,
+    weekStartTs:    st.weekStartTs,
+    weekEndTs:      st.weekEndTs,
     seasonId:       st.seasonId,
+    seasonStartTs:  st.seasonStartTs,
     members:        membersArr,
   }));
   if (!res.ok) console.warn('[weekly] Archive PATCH failed:', res.status);
@@ -1326,7 +1439,11 @@ app.get('/api/weekly-gains', (_req, res) => {
     weekKey:        weeklyGainsState.weekKey,
     weekStartLabel: weeklyGainsState.weekStartLabel,
     weekEndLabel:   weeklyGainsState.weekEndLabel,
+    weekIndex:      weeklyGainsState.weekIndex || null,
+    weekStartTs:    weeklyGainsState.weekStartTs || null,
+    weekEndTs:      weeklyGainsState.weekEndTs || null,
     seasonId:       weeklyGainsState.seasonId || null,
+    seasonStartTs:  weeklyGainsState.seasonStartTs || null,
     seasonEndTs:    weeklyGainsState.seasonEndTs || null,
     seasonEnded:    !!(weeklyGainsState.seasonEndTs && Date.now() >= weeklyGainsState.seasonEndTs),
     members:        membersObj,
