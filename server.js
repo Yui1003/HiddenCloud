@@ -1190,7 +1190,13 @@ async function backfillTrackerCache() {
   trackerCache.suspects   = suspects;
   trackerCache.deductions = deductions;
   trackerCache.rounds     = rounds.slice().sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
-  trackerCache.bleedEvents = bleedEvents;
+  // The client dedupes bleedEventLog entries by `_id` (underscore) — that field
+  // is only ever attached by the writing client at broadcast time, never by
+  // this Firestore-backfill path, which only produces a bare `id`. Alias it
+  // here so every entry the client sees carries the field it actually checks;
+  // without this, every reconnect/reload re-added the whole cached log with
+  // no way to recognize duplicates (bug: history showing each mark/clear 3x).
+  trackerCache.bleedEvents = bleedEvents.map(e => ({ _id: e.id, ...e }));
   for (const s of suspects)   if (s.dedupKey) trackerSeenKeys.suspects.add(s.dedupKey);
   for (const d of deductions) trackerSeenKeys.deductions.add(`${d.clanId}_${d.ts}`);
   for (const r of rounds)     trackerSeenKeys.rounds.add(r.id);
