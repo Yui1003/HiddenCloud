@@ -16,6 +16,7 @@ const SUBSCRIPTIONS_FILE = path.join(DATA_DIR, 'push-subscriptions.json'); // lo
 const DETECTOR_STATE_FILE = path.join(DATA_DIR, 'push-detector-state.json');
 const FIREBASE_TOKEN_FILE = path.join(DATA_DIR, 'firebase-token.json');
 const WEEKLY_GAINS_FILE         = path.join(DATA_DIR, 'weekly-gains-state.json');
+const TRACKER_PAUSE_FILE        = path.join(DATA_DIR, 'tracker-pause-state.json');
 
 const WEEKLY_GAINS_SYNC_INTERVAL_MS = 5 * 60_000;  // Write weeklyGains/777 at most every 5 min
 const WEEKLY_GAINS_RESTORE_RETRY_MS = 60_000;       // Retry a failed baseline restore
@@ -1435,6 +1436,21 @@ const trackerCache = { suspects: [], deductions: [], rounds: [], bleedEvents: []
 const trackerSeenKeys = { suspects: new Set(), deductions: new Set(), rounds: new Set() };
 const trackerSseClients = new Set();
 
+// ── Tracker pause switches (admin-controlled) ────────────────────────────────
+// The upstream clan-rankings API occasionally goes haywire and flaps a clan's
+// deduction value every poll cycle. Every open client "detects" a change each
+// time that happens and reports it here, which — even with the seen-key
+// dedup below — still means the server keeps writing a fresh Firestore doc
+// for every distinct flapping value. These switches let an admin kill the
+// deduction and/or suspect ingestion pipelines at the source (before any
+// Firestore write happens) until the upstream data settles down again.
+// Persisted to a local file so the paused state survives a server restart.
+let trackerPause = readJson(TRACKER_PAUSE_FILE, { deductions: false, suspects: false });
+
+function saveTrackerPause() {
+  writeJson(TRACKER_PAUSE_FILE, trackerPause);
+}
+
 function broadcastTracker(type, entry) {
   const payload = `data: ${JSON.stringify({ type, entry })}\n\n`;
   for (const res of trackerSseClients) {
@@ -1689,6 +1705,7 @@ app.post('/api/bleeds/sync', (req, res) => {
 // that used to live in index.html for these collections.
 
 app.post('/api/suspects', async (req, res) => {
+  if (trackerPause.suspects) return res.json({ ok: true, paused: true });
   const entry = req.body;
   if (!entry || typeof entry.dedupKey !== 'string' || !entry.dedupKey) {
     return res.status(400).json({ error: 'dedupKey is required.' });
@@ -1698,6 +1715,7 @@ app.post('/api/suspects', async (req, res) => {
 });
 
 app.post('/api/deductions', async (req, res) => {
+  if (trackerPause.deductions) return res.json({ ok: true, paused: true });
   const entry = req.body;
   if (!entry || typeof entry.clanId === 'undefined' || typeof entry.ts !== 'number') {
     return res.status(400).json({ error: 'clanId and ts are required.' });
@@ -1712,6 +1730,25 @@ app.post('/api/deductions', async (req, res) => {
   const docId = `${entry.clanId}_${entry.deduction}_${bucket}`;
   const isNew = await ingestTrackerEvent('deduction', 'deductionLog', docId, entry, 'deductions');
   res.json({ ok: true, duplicate: !isNew });
+});
+
+// Admin-only pause switches for the deduction/suspect auto-detection pipelines
+// (see trackerPause above). GET lets a freshly-opened client know the current
+// state; POST flips it, persists to disk, and broadcasts to every connected
+// client over the existing tracker SSE stream so all open tabs — not just the
+// admin's — reflect the change immediately.
+app.get('/api/tracker-pause', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(trackerPause);
+});
+
+app.post('/api/tracker-pause', (req, res) => {
+  const { deductions, suspects } = req.body || {};
+  if (typeof deductions === 'boolean') trackerPause.deductions = deductions;
+  if (typeof suspects === 'boolean')   trackerPause.suspects   = suspects;
+  saveTrackerPause();
+  broadcastTracker('pauseState', trackerPause);
+  res.json({ ok: true, pause: trackerPause });
 });
 
 app.post('/api/rounds', async (req, res) => {
@@ -1746,7 +1783,7 @@ app.post('/api/bleed-events', (req, res) => {
 // no matter how many people do it at once.
 app.get('/api/tracker-snapshot', (_req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json(trackerCache);
+  res.json({ ...trackerCache, pause: trackerPause });
 });
 
 // Live stream — one shared connection per client, no Firestore listener behind it.
