@@ -3665,6 +3665,7 @@ async function markClanBleed(clanId) {
   try {
     const logRef = await db.collection('bleedEventLog').add(logEntry);
     markLogId = logRef.id;
+    syncBleedEventToServer({ _id: markLogId, ...logEntry }); // notify server -> instant SSE broadcast
   } catch (e) {
     console.warn('bleedEventLog write error', e);
   }
@@ -3746,8 +3747,14 @@ async function confirmUnmarkBleed() {
   // originally pinged it), and whether it was flagged a false alarm.
   const ts = new Date().toISOString();
   const logEntry = { clanId, clanName, action: 'cleared', by: loggedInUserName, byId: loggedInUserId, ts, falseAlarm: isFalseAlarm };
-  await db.collection('bleedEventLog').add(logEntry)
-    .catch(e => console.warn('bleedEventLog write error', e));
+  let clearLogId = null;
+  try {
+    const clearRef = await db.collection('bleedEventLog').add(logEntry);
+    clearLogId = clearRef.id;
+    syncBleedEventToServer({ _id: clearLogId, ...logEntry }); // notify server -> instant SSE broadcast
+  } catch (e) {
+    console.warn('bleedEventLog write error', e);
+  }
 
   // Retroactively flag the original "marked" ping itself as unmarked, so
   // it's excluded from the Ping Event tally — pending or (theoretically)
@@ -3759,13 +3766,16 @@ async function confirmUnmarkBleed() {
   // alarms. The checkbox just labels *why* it was cleared for the History
   // tab; it doesn't gate whether the point survives.
   if (info && info.markLogId) {
-    await db.collection('bleedEventLog').doc(info.markLogId).set({
+    const patch = {
       unmarked:       true,
       falseAlarm:     isFalseAlarm,
       unmarkedBy:     loggedInUserName,
       unmarkedById:   loggedInUserId,
       unmarkedAt:     ts,
-    }, { merge: true }).catch(e => console.warn('bleedEventLog unmark flag error', e));
+    };
+    db.collection('bleedEventLog').doc(info.markLogId).set(patch, { merge: true })
+      .then(() => syncBleedEventToServer({ _patchId: info.markLogId, ...patch })) // notify server -> instant SSE broadcast
+      .catch(e => console.warn('bleedEventLog unmark flag error', e));
   }
 
   bumpLastWrite();
@@ -4692,115 +4702,124 @@ async function initFirestoreListeners() {
   // Live listeners start from here (5 s overlap handles clock-skew)
   const liveFrom = hasFreshCache ? (lastSync - 5000) : (now - 5000);
 
-  // ── Suspect log ──────────────────────────────────────────────────────────
-  function setupSuspectLiveTail(fromTs) {
-    db.collection('suspectLog')
-      .where('ts', '>=', fromTs)
-      .onSnapshot(liveSnap => {
-        let added = 0;
-        liveSnap.docChanges().forEach(change => {
-          if (change.type === 'added') {
-            const entry = change.doc.data();
-            if (!entry.dedupKey) return;
-            if (!suspectLogKeysSeen.has(entry.dedupKey)) {
-              suspectLogKeysSeen.add(entry.dedupKey);
-              if (!state.suspectLog) state.suspectLog = [];
-              state.suspectLog.push(entry);
-              added++;
-            }
-          }
-        });
-        if (added > 0) {
+  // ── Suspects / deductions / rounds / bleed log ────────────────────────────
+  // These four used to be four separate direct Firestore onSnapshot listeners
+  // per browser tab (plus separate catch-up .get() calls). They now come from
+  // one server-owned channel: a single snapshot fetch for catch-up, then one
+  // shared SSE connection for live updates. The server dedupes and writes to
+  // Firestore on clients' behalf (see /api/suspects, /api/deductions,
+  // /api/rounds, /api/bleed-events in server.js), so no client talks to
+  // Firestore for these collections anymore — reads and writes for them no
+  // longer scale with how many people have the tab open.
+  try {
+    const snapRes = await fetch('/api/tracker-snapshot', { cache: 'no-store' });
+    if (snapRes.ok) {
+      const snap = await snapRes.json();
+
+      if (!state.suspectLog) state.suspectLog = [];
+      for (const entry of (snap.suspects || [])) {
+        if (!entry.dedupKey || suspectLogKeysSeen.has(entry.dedupKey)) continue;
+        suspectLogKeysSeen.add(entry.dedupKey);
+        state.suspectLog.push(entry);
+      }
+      state.suspectLog.sort((a, b) => b.ts - a.ts);
+      if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
+
+      if (!state.deductionLog) state.deductionLog = [];
+      for (const entry of (snap.deductions || [])) {
+        const key = `${entry.clanId}_${entry.ts}`;
+        if ((state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key)) continue;
+        state.deductionLog.push(entry);
+      }
+      state.deductionLog.sort((a, b) => b.ts - a.ts);
+      if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
+
+      for (const entry of (snap.rounds || [])) {
+        if (state.roundHistory.some(r => r.id === entry.id)) continue;
+        state.roundHistory.push(entry);
+      }
+      state.roundHistory.sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
+      if (state.roundHistory.length > 100) state.roundHistory = state.roundHistory.slice(-100);
+
+      const bleedDocIdsSeen = new Set(bleedEventLog.map(e => e._id).filter(Boolean));
+      for (const entry of (snap.bleedEvents || [])) {
+        if (entry._id && bleedDocIdsSeen.has(entry._id)) continue;
+        if (entry._id) bleedDocIdsSeen.add(entry._id);
+        bleedEventLog.unshift(entry);
+      }
+      if (bleedEventLog.length > 500) bleedEventLog = bleedEventLog.slice(0, 500);
+
+      state.lastFirestoreSync = Date.now();
+      saveToStorage();
+      updateSuspectsTabBadge();
+      if (state.currentTab === 'suspects')   renderSuspects();
+      if (state.currentTab === 'deductions') renderDeductions();
+      if (state.currentTab === 'history')    renderHistory();
+      if (state.currentTab === 'bleed')      renderBleeding();
+      setFbStatus('connected');
+    } else {
+      setFbStatus('error');
+    }
+  } catch (e) {
+    console.warn('tracker-snapshot fetch error', e);
+    setFbStatus('error');
+  }
+
+  (function setupTrackerStream() {
+    const es = new EventSource('/api/tracker-stream');
+    es.onmessage = function(evt) {
+      try {
+        const { type, entry } = JSON.parse(evt.data);
+        if (!entry) return;
+
+        if (type === 'suspect') {
+          if (!entry.dedupKey || suspectLogKeysSeen.has(entry.dedupKey)) return;
+          suspectLogKeysSeen.add(entry.dedupKey);
+          if (!state.suspectLog) state.suspectLog = [];
+          state.suspectLog.unshift(entry);
           state.suspectLog.sort((a, b) => b.ts - a.ts);
           if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
           state.lastFirestoreSync = Date.now();
           saveToStorage();
           updateSuspectsTabBadge();
           if (state.currentTab === 'suspects') renderSuspects();
-        }
-      }, err => { console.warn('Firestore suspectLog live error', err); setFbStatus('error'); });
-  }
 
-  if (hasFreshCache) {
-    setupSuspectLiveTail(liveFrom);
-  } else {
-    // First load or stale cache — fetch up to 200 recent docs then start live tail
-    db.collection('suspectLog')
-      .orderBy('ts', 'desc')
-      .limit(200)
-      .get()
-      .then(snap => {
-        setFbStatus('connected');
-        snap.forEach(doc => {
-          const entry = doc.data();
-          if (!entry.dedupKey) return;
-          if (!suspectLogKeysSeen.has(entry.dedupKey)) {
-            suspectLogKeysSeen.add(entry.dedupKey);
-            if (!state.suspectLog) state.suspectLog = [];
-            state.suspectLog.push(entry);
-          }
-        });
-        state.suspectLog.sort((a, b) => b.ts - a.ts);
-        state.lastFirestoreSync = Date.now();
-        saveToStorage();
-        updateSuspectsTabBadge();
-        if (state.currentTab === 'suspects') renderSuspects();
-        setupSuspectLiveTail(now - 5000);
-      })
-      .catch(err => { console.warn('Firestore suspectLog error', err); setFbStatus('error'); });
-  }
-
-  // ── Deduction log ─────────────────────────────────────────────────────────
-  function setupDeductionLiveTail(fromTs) {
-    db.collection('deductionLog')
-      .where('ts', '>=', fromTs)
-      .onSnapshot(liveSnap => {
-        let added = 0;
-        liveSnap.docChanges().forEach(change => {
-          if (change.type === 'added') {
-            const entry = change.doc.data();
-            const key = `${entry.clanId}_${entry.ts}`;
-            const alreadyHave = (state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key);
-            if (!alreadyHave) {
-              if (!state.deductionLog) state.deductionLog = [];
-              state.deductionLog.push(entry);
-              added++;
-            }
-          }
-        });
-        if (added > 0) {
+        } else if (type === 'deduction') {
+          const key = `${entry.clanId}_${entry.ts}`;
+          if ((state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key)) return;
+          if (!state.deductionLog) state.deductionLog = [];
+          state.deductionLog.unshift(entry);
           state.deductionLog.sort((a, b) => b.ts - a.ts);
           if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
           saveToStorage();
           if (state.currentTab === 'deductions') renderDeductions();
-        }
-      }, err => console.warn('Firestore deductionLog live error', err));
-  }
 
-  if (hasFreshCache) {
-    setupDeductionLiveTail(liveFrom);
-  } else {
-    db.collection('deductionLog')
-      .orderBy('ts', 'desc')
-      .limit(100)
-      .get()
-      .then(snap => {
-        snap.forEach(doc => {
-          const entry = doc.data();
-          const key = `${entry.clanId}_${entry.ts}`;
-          const alreadyHave = (state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key);
-          if (!alreadyHave) {
-            if (!state.deductionLog) state.deductionLog = [];
-            state.deductionLog.push(entry);
+        } else if (type === 'round') {
+          if (state.roundHistory.some(r => r.id === entry.id)) return;
+          state.roundHistory.push(entry);
+          state.roundHistory.sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
+          if (state.roundHistory.length > 100) state.roundHistory = state.roundHistory.slice(-100);
+          saveToStorage();
+          if (state.currentTab === 'history') renderHistory();
+
+        } else if (type === 'bleedEvent') {
+          if (entry._patchId) {
+            const idx = bleedEventLog.findIndex(e => e._id === entry._patchId);
+            if (idx !== -1) bleedEventLog[idx] = { ...bleedEventLog[idx], ...entry };
+          } else {
+            if (entry._id && bleedEventLog.some(e => e._id === entry._id)) return;
+            bleedEventLog.unshift(entry);
+            if (bleedEventLog.length > 500) bleedEventLog = bleedEventLog.slice(0, 500);
           }
-        });
-        state.deductionLog.sort((a, b) => b.ts - a.ts);
-        saveToStorage();
-        if (state.currentTab === 'deductions') renderDeductions();
-        setupDeductionLiveTail(now - 5000);
-      })
-      .catch(err => console.warn('Firestore deductionLog error', err));
-  }
+          state.lastFirestoreSync = Date.now();
+          saveToStorage();
+          if (state.currentTab === 'history') renderHistory();
+          if (state.currentTab === 'bleed')   renderBleeding();
+        }
+      } catch (err) { console.warn('tracker-stream parse error', err); }
+    };
+    es.onerror = function() { console.warn('tracker-stream disconnected — will auto-reconnect'); };
+  })();
 
   // ── Weekly gains: polled from server API (no Firestore reads) ────────────
   // The server calculates gains in memory from the live rankings feed and
@@ -4851,105 +4870,6 @@ async function initFirestoreListeners() {
     es.onerror = function() { console.warn('bleed-stream disconnected — will auto-reconnect'); };
   })();
 
-  // ── Bleed event log ───────────────────────────────────────────────────────
-  // Entries include a _id field (Firestore doc ID) so live dedup works even
-  // across sessions when the log is restored from localStorage.
-  function setupBleedLogLiveTail(fromTs, bleedDocIdsSeen) {
-    db.collection('bleedEventLog')
-      .where('ts', '>=', fromTs)
-      .onSnapshot(liveSnap => {
-        let added = 0;
-        liveSnap.docChanges().forEach(change => {
-          if (change.type === 'added' && !bleedDocIdsSeen.has(change.doc.id)) {
-            bleedDocIdsSeen.add(change.doc.id);
-            bleedEventLog.unshift({ _id: change.doc.id, ...change.doc.data() });
-            added++;
-          }
-        });
-        if (added > 0) {
-          if (bleedEventLog.length > 500) bleedEventLog = bleedEventLog.slice(0, 500);
-          state.lastFirestoreSync = Date.now();
-          saveToStorage();
-          if (state.currentTab === 'history') renderHistory();
-          if (state.currentTab === 'bleed')   renderBleeding();
-        }
-      }, err => console.warn('Firestore bleedEventLog live error', err));
-  }
-
-  if (hasFreshCache) {
-    // Restore doc ID set from cached entries for dedup
-    const bleedDocIdsSeen = new Set(bleedEventLog.map(e => e._id).filter(Boolean));
-    setupBleedLogLiveTail(liveFrom, bleedDocIdsSeen);
-  } else {
-    const bleedDocIdsSeen = new Set();
-    db.collection('bleedEventLog')
-      .orderBy('ts', 'desc')
-      .limit(100)
-      .get()
-      .then(snap => {
-        bleedEventLog = [];
-        snap.forEach(d => {
-          bleedDocIdsSeen.add(d.id);
-          bleedEventLog.push({ _id: d.id, ...d.data() });
-        });
-        saveToStorage();
-        if (state.currentTab === 'history') renderHistory();
-        if (state.currentTab === 'bleed')   renderBleeding();
-        setupBleedLogLiveTail(now - 5000, bleedDocIdsSeen);
-      })
-      .catch(err => console.warn('Firestore bleedEventLog error', err));
-  }
-
-  // ── Round history ─────────────────────────────────────────────────────────
-  // Written by whichever client is open when a round finalizes; fetched here so
-  // devices that were offline during a round still see full history when they open.
-  function setupRoundHistoryLiveTail(fromTs) {
-    db.collection('roundHistory')
-      .where('endTs', '>=', new Date(fromTs).toISOString())
-      .onSnapshot(liveSnap => {
-        let added = 0;
-        liveSnap.docChanges().forEach(change => {
-          if (change.type === 'added') {
-            const entry = change.doc.data();
-            if (!state.roundHistory.some(r => r.id === entry.id)) {
-              state.roundHistory.push(entry);
-              added++;
-            }
-          }
-        });
-        if (added > 0) {
-          state.roundHistory.sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
-          if (state.roundHistory.length > 100) state.roundHistory = state.roundHistory.slice(-100);
-          saveToStorage();
-          if (state.currentTab === 'history') renderHistory();
-        }
-      }, err => console.warn('Firestore roundHistory live error', err));
-  }
-
-  if (hasFreshCache) {
-    setupRoundHistoryLiveTail(liveFrom);
-  } else {
-    // Fetch last 96 rounds (~48 hours worth) so everyone sees recent history
-    db.collection('roundHistory')
-      .orderBy('endTs', 'desc')
-      .limit(96)
-      .get()
-      .then(snap => {
-        snap.forEach(doc => {
-          const entry = doc.data();
-          if (!state.roundHistory.some(r => r.id === entry.id)) {
-            state.roundHistory.push(entry);
-          }
-        });
-        state.roundHistory.sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
-        if (state.roundHistory.length > 100) state.roundHistory = state.roundHistory.slice(-100);
-        saveToStorage();
-        if (state.currentTab === 'history') renderHistory();
-        setupRoundHistoryLiveTail(now - 5000);
-      })
-      .catch(err => console.warn('Firestore roundHistory error', err));
-  }
-
   // ── Discord webhook URL: one-time read per session (only changes on admin action)
   if (!hasFreshCache) {
     db.collection('config').doc('discordWebhook')
@@ -4972,6 +4892,20 @@ function syncBleedsToServer(bleeds) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ bleeds }),
+  }).catch(() => {});
+}
+
+// Notify server of a bleedEventLog write so it can cache + SSE-broadcast it —
+// the client still writes the doc itself (these are rare, one-off admin
+// clicks, not auto-detected every poll, so they were never duplicated the
+// way suspects/deductions/rounds were). Pass { _patchId } to patch an
+// existing cached entry in place (used when unmarking flags the original
+// "marked" log entry) instead of adding a new one.
+function syncBleedEventToServer(entry) {
+  fetch('/api/bleed-events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
   }).catch(() => {});
 }
 
@@ -5050,30 +4984,46 @@ function bumpLastWrite() {
     .catch(e => console.warn('Firestore meta write error', e));
 }
 
-// Called when a round finalizes — writes to Firestore so offline devices see it on next open
+// Called when a round finalizes. Every open client detects the same round
+// boundary and calls this, so the server dedupes on entry.id (the round's
+// fixed HH:00/HH:30 boundary, identical across every client regardless of
+// exact poll timing) and only the first report actually reaches Firestore.
 function pushRoundToFirestore(entry) {
-  if (!db) return;
-  db.collection('roundHistory').doc(entry.id).set(entry)
-    .catch(e => console.warn('Firestore roundHistory write error', e));
-  bumpLastWrite();
+  fetch('/api/rounds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  }).catch(e => console.warn('round report error', e));
 }
 
-// Called when a new suspect event is created \u2014 writes to Firestore so all devices see it
+// Called when a new suspect event is created. dedupKey is derived from the
+// member's peak reputation value (shared game data, not local clock), so
+// it's already identical across every client that independently detects the
+// same event -- the server dedupes on it and only the first report reaches
+// Firestore.
 function pushSuspectToFirestore(entry) {
-  if (!db) return;
-  db.collection('suspectLog').doc(entry.dedupKey).set(entry)
-    .catch(e => console.warn('Firestore suspect write error', e));
-  bumpLastWrite();
+  fetch('/api/suspects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  }).catch(e => console.warn('suspect report error', e));
 }
 
-// Called when a new deduction entry is created \u2014 writes to Firestore so all devices see it
+// Called when a new deduction entry is created. entry.ts is a local
+// Date.now() captured independently by whichever client detected it first,
+// so it can differ by a few seconds between clients watching the same real
+// event -- the server buckets ts into a 30s window for dedup (see
+// ingestTrackerEvent in server.js), which comfortably covers normal
+// cross-client poll skew while still letting a genuine repeat of the same
+// deduction value, hours later, log as its own entry.
 function pushDeductionToFirestore(entry) {
-  if (!db) return;
-  // Strip the members array before writing \u2014 members are rebuilt from live data on read
+  // Strip the members array before sending -- members are rebuilt from live data on read
   const { members, ...core } = entry;
-  db.collection('deductionLog').doc(`${entry.clanId}_${entry.ts}`).set(core)
-    .catch(e => console.warn('Firestore deduction write error', e));
-  bumpLastWrite();
+  fetch('/api/deductions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(core),
+  }).catch(e => console.warn('deduction report error', e));
 }
 
 // ============================================================
