@@ -882,7 +882,6 @@ body::before{
           <div class="settings-section-title">Data</div>
           <div class="settings-btn-row">
             <button class="btn-primary" onclick="exportData()">Export Data (JSON)</button>
-            <button class="btn-danger" onclick="confirmClearHistory()">Clear Round History</button>
             <button class="btn-danger" onclick="confirmReset()">Reset All Settings</button>
           </div>
         </div>
@@ -902,6 +901,13 @@ body::before{
               <div class="settings-row-sub">Permanently deletes all suspect &amp; deduction logs from Firebase (affects all devices)</div>
             </div>
             <button class="btn-danger" onclick="confirmDeleteFirebaseRecords()">Delete Firebase Records</button>
+          </div>
+          <div class="settings-row" id="settings-round-history-row">
+            <div>
+              <div class="settings-row-label">Round History</div>
+              <div class="settings-row-sub">Permanently deletes all round history from this device AND Firebase (affects all devices)</div>
+            </div>
+            <button class="btn-danger" onclick="confirmDeleteRoundHistory()">Delete Round History</button>
           </div>
         </div>
 
@@ -4298,19 +4304,25 @@ function closeModal(e) {
   document.getElementById('modal-confirm-btn').onclick = null;
 }
 
-function confirmClearHistory() {
-  document.getElementById('modal-title').textContent = 'Clear Round History?';
-  document.getElementById('modal-sub').textContent = 'All recorded rounds will be deleted. This does not affect your current clan tracking.';
-  document.getElementById('modal-confirm-btn').textContent = 'Clear History';
-  document.getElementById('modal-confirm-btn').onclick = () => {
-    state.roundHistory = [];
-    saveToStorage();
-    closeModal();
-    renderHistory();
-  };
-  document.getElementById('modal-overlay').classList.add('visible');
+function confirmDeleteRoundHistory() {
+  showDeleteRoundHistoryPasswordModal();
 }
 
+function showDeleteRoundHistoryPasswordModal() {
+  pwModalMode = 'clearRounds';
+  document.getElementById('pw-modal-title').textContent = '\u{1F512} Admin Verification Required';
+  document.getElementById('pw-modal-sub').textContent = 'Enter the admin password to permanently delete all round history from this device and Firebase. This action cannot be undone and affects all devices.';
+  const inp = document.getElementById('pw-input');
+  inp.value = '';
+  inp.type  = 'password';
+  inp.classList.remove('error');
+  document.getElementById('pw-error').textContent = '';
+  document.getElementById('pw-toggle-btn').textContent = '\u{1F441}';
+  document.getElementById('pw-confirm-btn').disabled = false;
+  document.getElementById('pw-confirm-btn').textContent = 'Delete Round History';
+  document.getElementById('pw-modal-overlay').classList.add('visible');
+  setTimeout(() => inp.focus(), 80);
+}
 function confirmReset() {
   document.getElementById('modal-title').textContent = 'Reset All Settings?';
   document.getElementById('modal-sub').textContent = 'This will reset notification settings and all round history. Hidden Cloud Village remains your permanent clan.';
@@ -4395,6 +4407,16 @@ function closePwModal(e) {
   document.getElementById('pw-modal-overlay').classList.remove('visible');
 }
 
+// Single source of truth for what the confirm button should say, since it
+// gets reset to this label in a few different places (initial open, wrong
+// password, and on a request error) across four modal modes.
+function pwModalConfirmLabel() {
+  if (pwModalMode === 'access')      return 'Unlock Admin Access';
+  if (pwModalMode === 'archive')     return 'Archive & Reset';
+  if (pwModalMode === 'clearRounds') return 'Delete Round History';
+  return 'Delete Firebase Records';
+}
+
 function togglePwVisibility() {
   const inp = document.getElementById('pw-input');
   const btn = document.getElementById('pw-toggle-btn');
@@ -4418,7 +4440,7 @@ async function submitPwModal() {
     const snap = await db.collection('config').doc('adminAuth').get();
     if (!snap.exists) {
       errEl.textContent = 'Admin config not found in Firebase. Contact the tracker owner.';
-      btn.disabled = false; btn.textContent = 'Delete Firebase Records'; return;
+      btn.disabled = false; btn.textContent = pwModalConfirmLabel(); return;
     }
     const storedHash  = snap.data().passwordHash;
     const enteredHash = await hashPassword(entered);
@@ -4427,7 +4449,7 @@ async function submitPwModal() {
       errEl.textContent = 'Incorrect password. Access denied.';
       inp.classList.add('error');
       btn.disabled = false;
-      btn.textContent = pwModalMode === 'access' ? 'Unlock Admin Access' : 'Delete Firebase Records';
+      btn.textContent = pwModalConfirmLabel();
       inp.value = '';
       inp.focus();
       return;
@@ -4437,6 +4459,7 @@ async function submitPwModal() {
     document.getElementById('pw-modal-overlay').classList.remove('visible');
     if (pwModalMode === 'access') { setAccessLevel('admin'); return; }
     if (pwModalMode === 'archive') { await executeArchiveSeason(); return; }
+    if (pwModalMode === 'clearRounds') { await executeClearRoundHistory(); return; }
 
     try {
       const suspSnap = await db.collection('suspectLog').limit(500).get();
@@ -4464,8 +4487,29 @@ async function submitPwModal() {
     console.warn('submitPwModal error', e);
     errEl.textContent = 'An error occurred. Check your connection and try again.';
     btn.disabled = false;
-    btn.textContent = pwModalMode === 'access' ? 'Unlock Admin Access' : pwModalMode === 'archive' ? 'Archive & Reset' : 'Delete Firebase Records';
+    btn.textContent = pwModalConfirmLabel();
   }
+}
+
+// Deletes round history everywhere: asks the server to wipe the Firestore
+// roundHistory collection and its own in-memory cache (see /api/rounds/clear
+// in server.js), then clears this device's local copy. The server also
+// broadcasts the clear over the tracker SSE stream, so every other open tab
+// drops its local round history too, without needing to touch Firestore
+// directly.
+async function executeClearRoundHistory() {
+  try {
+    const res = await fetch('/api/rounds/clear', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  } catch (e) {
+    console.warn('round history clear error', e);
+    alert('Failed to delete round history from Firebase. Check your connection and try again.');
+    return;
+  }
+  state.roundHistory = [];
+  saveToStorage();
+  if (state.currentTab === 'history') renderHistory();
 }
 
 // ============================================================
@@ -4668,6 +4712,8 @@ function setAccessLevel(level) {
   // Settings: toggle Firebase delete row and access buttons
   const fbRow = document.getElementById('settings-firebase-row');
   if (fbRow) fbRow.style.display = isAdmin ? '' : 'none';
+  const roundHistRow = document.getElementById('settings-round-history-row');
+  if (roundHistRow) roundHistRow.style.display = isAdmin ? '' : 'none';
   const btnAccess = document.getElementById('btn-admin-access');
   const btnExit   = document.getElementById('btn-exit-admin');
   if (btnAccess) btnAccess.style.display = isAdmin ? 'none' : '';
@@ -5043,6 +5089,11 @@ async function initFirestoreListeners() {
           state.roundHistory.push(entry);
           state.roundHistory.sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
           if (state.roundHistory.length > 100) state.roundHistory = state.roundHistory.slice(-100);
+          saveToStorage();
+          if (state.currentTab === 'history') renderHistory();
+
+        } else if (type === 'roundsCleared') {
+          state.roundHistory = [];
           saveToStorage();
           if (state.currentTab === 'history') renderHistory();
 
@@ -6072,7 +6123,7 @@ window.downloadSuspects             = downloadSuspects;
 window.clearYourClan                = clearYourClan;
 window.toggleNotif                  = toggleNotif;
 window.exportData                   = exportData;
-window.confirmClearHistory          = confirmClearHistory;
+window.confirmDeleteRoundHistory    = confirmDeleteRoundHistory;
 window.confirmReset                 = confirmReset;
 window.confirmDeleteLocalRecords    = confirmDeleteLocalRecords;
 window.confirmDeleteFirebaseRecords = confirmDeleteFirebaseRecords;
