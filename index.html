@@ -86,8 +86,9 @@ body::before{
 .pwa-install-btn{background:var(--mauve);border:1px solid var(--mauve);color:#0a0a0a;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700;text-shadow:none}
 .pwa-install-btn:hover{background:#ffd60a;border-color:#ffd60a}
 /* TAB BAR */
-#tabs{display:flex;background:var(--bg2);border-top:1px solid var(--border);height:var(--tab-h);flex-shrink:0}
-.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;color:var(--text3);transition:all .2s;border-top:2px solid transparent;padding:8px 4px}
+#tabs{display:flex;background:var(--bg2);border-top:1px solid var(--border);height:var(--tab-h);flex-shrink:0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;scroll-snap-type:x proximity}
+#tabs::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;min-width:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;color:var(--text3);transition:all .2s;border-top:2px solid transparent;padding:8px 10px;scroll-snap-align:start;white-space:nowrap}
 .tab:hover{color:var(--text2)}
 .tab.active{color:var(--mauve);border-top-color:var(--mauve)}
 .tab svg{width:18px;height:18px}
@@ -270,7 +271,7 @@ body::before{
 .settings-row-right{display:flex;align-items:center;gap:8px}
 .settings-select{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:8px;font-size:12px;outline:none;cursor:pointer}
 .settings-select:focus{border-color:var(--mauve)}
-.settings-toggle{width:42px;height:24px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;cursor:pointer;position:relative;transition:all .3s}
+.settings-toggle{width:42px;height:24px;min-width:42px;flex-shrink:0;background:var(--bg3);border:1px solid var(--border);border-radius:12px;cursor:pointer;position:relative;transition:all .3s}
 .settings-toggle.on{background:var(--mauve);border-color:var(--mauve)}
 .settings-toggle::after{content:'';width:18px;height:18px;background:white;border-radius:50%;position:absolute;top:2px;left:2px;transition:transform .3s}
 .settings-toggle.on::after{transform:translateX(18px)}
@@ -337,7 +338,8 @@ body::before{
 @media(min-width:500px){
   .screen{max-width:640px;margin:0 auto;border-left:1px solid var(--border);border-right:1px solid var(--border)}
   #header{max-width:640px;margin:0 auto;width:100%}
-  #tabs{max-width:640px;margin:0 auto;width:100%}
+  #tabs{max-width:640px;margin:0 auto;width:100%;overflow-x:visible}
+  #tabs .tab{flex:1;min-width:0}
 }
 /* ── Desktop (≥900px): full-width content up to 960px, no side chrome ── */
 @media(min-width:900px){
