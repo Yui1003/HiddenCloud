@@ -557,6 +557,17 @@ function updateWeeklyGains(json) {
   // Build the set of member IDs currently in the clan.
   const currentMemberIds = new Set((hcClan.member_list || []).map((m) => String(m.id)));
 
+  // If this poll is the very first one establishing baselines for week 1 of
+  // the season (no members tracked yet), reputation is known to be 0 at the
+  // true season start — even if this code only started polling hours late
+  // (e.g. a deploy landing well after the real reset). Using live rep as the
+  // baseline in that case would silently swallow every gain that happened
+  // before the tracker booted. A genuine new joiner later in the week still
+  // falls through to the live-rep baseline below, since their season
+  // contribution really does start when they're first seen.
+  const isInitialWeek1Baseline =
+    weeklyGainsState.weekIndex === 1 && Object.keys(members).length === 0;
+
   for (const member of hcClan.member_list || []) {
     const id  = String(member.id);
     const rep = member.reputation;
@@ -564,7 +575,11 @@ function updateWeeklyGains(json) {
       // Still baseline a newly-seen member even after the season ended, so
       // they show up correctly once the next season starts — they just
       // won't have accrued anything for this (already over) season.
-      members[id] = { name: member.name, weekStartRep: rep, currentRep: rep };
+      members[id] = {
+        name: member.name,
+        weekStartRep: isInitialWeek1Baseline ? 0 : rep,
+        currentRep: rep,
+      };
       changed = true;
       newBaselineAdded = true;
     } else {
