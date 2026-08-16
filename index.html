@@ -3749,19 +3749,27 @@ async function confirmUnmarkBleed() {
   await db.collection('bleedEventLog').add(logEntry)
     .catch(e => console.warn('bleedEventLog write error', e));
 
-  // If flagged a false alarm, retroactively flag the original "marked" ping
-  // itself so it's excluded from the Ping Event tally — confirmed or
-  // pending — regardless of who originally made it.
-  if (isFalseAlarm && info && info.markLogId) {
+  // Retroactively flag the original "marked" ping itself as unmarked, so
+  // it's excluded from the Ping Event tally — pending or (theoretically)
+  // confirmed — regardless of who cleared it. This always happens on any
+  // unmark, checkbox or not: the Unmark button is only ever clickable while
+  // the ping is still inside its own open round (see markedInCurrentRound
+  // in toggleClanBleed), i.e. before it would've locked in as confirmed —
+  // so there's nothing to "protect" by leaving it uncounted only for false
+  // alarms. The checkbox just labels *why* it was cleared for the History
+  // tab; it doesn't gate whether the point survives.
+  if (info && info.markLogId) {
     await db.collection('bleedEventLog').doc(info.markLogId).set({
-      falseAlarm:     true,
-      falseAlarmBy:   loggedInUserName,
-      falseAlarmById: loggedInUserId,
-      falseAlarmAt:   ts,
-    }, { merge: true }).catch(e => console.warn('bleedEventLog false-alarm flag error', e));
+      unmarked:       true,
+      falseAlarm:     isFalseAlarm,
+      unmarkedBy:     loggedInUserName,
+      unmarkedById:   loggedInUserId,
+      unmarkedAt:     ts,
+    }, { merge: true }).catch(e => console.warn('bleedEventLog unmark flag error', e));
   }
 
   bumpLastWrite();
+  revertOptimisticPendingPing(); // instantly drop the local "+1 pending sync" badge too
 
   // Discord follow-up ping
   if (clan) sendDiscordBleedPing(clan, 'cleared');
@@ -5293,6 +5301,24 @@ function bumpOptimisticPendingPing() {
   const id = activePingEvent.id;
   const existing = optimisticPendingPings[id];
   optimisticPendingPings[id] = { count: (existing ? existing.count : 0) + 1, bumpedAt: Date.now() };
+  if (state.currentTab === 'events' && evLiveId === id) {
+    const lpEl = document.getElementById('ev-lp-' + id);
+    if (lpEl) lpEl.innerHTML = renderLiveProgress(id);
+  }
+}
+
+// Mirrors bumpOptimisticPendingPing — instantly drops the local "+1 pending"
+// badge the moment *this* client unmarks a clan, instead of waiting up to
+// ~20s for the server's next tally to catch up and correct it.
+function revertOptimisticPendingPing() {
+  const activePingEvent = eventsData.find(ev => ev.trackPings && evStatusOf(ev) === 'active');
+  if (!activePingEvent) return;
+  const id = activePingEvent.id;
+  const existing = optimisticPendingPings[id];
+  if (!existing || existing.count <= 0) return;
+  const nextCount = existing.count - 1;
+  if (nextCount <= 0) delete optimisticPendingPings[id];
+  else optimisticPendingPings[id] = { count: nextCount, bumpedAt: existing.bumpedAt };
   if (state.currentTab === 'events' && evLiveId === id) {
     const lpEl = document.getElementById('ev-lp-' + id);
     if (lpEl) lpEl.innerHTML = renderLiveProgress(id);
