@@ -162,6 +162,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .bleed-modal-btn{flex:1;padding:11px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:none;transition:all .2s}
 .bleed-modal-btn.cancel{background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
 .bleed-modal-btn.confirm{background:rgba(243,139,168,0.2);color:var(--red);border:1px solid rgba(243,139,168,0.5)}
+.bleed-modal-checkbox-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);margin-bottom:16px;cursor:pointer}
+.bleed-modal-checkbox-row input[type="checkbox"]{width:16px;height:16px;accent-color:var(--red);cursor:pointer;flex-shrink:0}
 .clan-card-bottom{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .clan-stat{display:flex;flex-direction:column;gap:1px}
 .clan-stat-label{font-size:10px;color:var(--text3)}
@@ -511,6 +513,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .ev-lp-elig{font-size:9px;font-weight:700;padding:2px 6px;border-radius:6px;letter-spacing:0.3px;white-space:nowrap;margin-left:6px}
 .ev-lp-elig.yes{background:rgba(74,222,128,0.16);color:var(--green);border:1px solid rgba(74,222,128,0.4)}
 .ev-lp-elig.no{background:rgba(88,88,88,0.18);color:var(--text3);border:1px solid rgba(88,88,88,0.3)}
+.ev-lp-pending{font-size:9px;font-weight:700;padding:2px 6px;border-radius:6px;letter-spacing:0.3px;white-space:nowrap;background:rgba(250,204,21,0.14);color:#facc15;border:1px solid rgba(250,204,21,0.35)}
 .ev-detail-body{border-top:1px solid var(--border);padding:12px}
 .ev-detail-desc{font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:10px;white-space:pre-wrap}
 .ev-detail-row{display:flex;flex-direction:column;gap:2px;margin-bottom:8px}
@@ -1032,6 +1035,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   <div class="bleed-modal" onclick="event.stopPropagation()">
     <div class="bleed-modal-title">&#129656; Unmark Bleeding Clan?</div>
     <div class="bleed-modal-sub" id="bleed-modal-sub">This clan was marked as bleeding. Are you sure you want to unmark it?</div>
+    <label class="bleed-modal-checkbox-row">
+      <input type="checkbox" id="bleed-modal-false-alarm-cb">
+      <span>This was a false alarm <span style="color:var(--text3)">(ping won't count)</span></span>
+    </label>
     <div class="bleed-modal-actions">
       <button class="bleed-modal-btn cancel" onclick="closeBleedModal()">Cancel</button>
       <button class="bleed-modal-btn confirm" id="bleed-modal-confirm-btn" onclick="confirmUnmarkBleed()">Unmark</button>
@@ -3518,9 +3525,10 @@ function renderHistory() {
     const bleedEventsHtml = roundBleedEvents.length > 0
       ? `<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;display:flex;flex-direction:column;gap:3px">
           ${roundBleedEvents.map(ev => {
-            const icon  = ev.action === 'marked' ? '&#129656;' : '&#10003;';
-            const color = ev.action === 'marked' ? 'var(--red)' : 'var(--safe)';
-            const label = ev.action === 'marked' ? 'Bleed marked' : 'Bleed cleared';
+            const isFalseAlarm = ev.action === 'cleared' && ev.falseAlarm;
+            const icon  = ev.action === 'marked' ? '&#129656;' : (isFalseAlarm ? '&#128683;' : '&#10003;');
+            const color = ev.action === 'marked' ? 'var(--red)' : (isFalseAlarm ? 'var(--text3)' : 'var(--safe)');
+            const label = ev.action === 'marked' ? 'Bleed marked' : (isFalseAlarm ? 'False alarm' : 'Bleed cleared');
             const t     = new Date(ev.ts);
             return `<div style="display:flex;justify-content:space-between;font-size:11px;gap:8px">
               <span style="color:${color}">${icon} <strong>${esc(ev.clanName)}</strong> \u2014 ${label} by ${esc(ev.by)}</span>
@@ -3648,6 +3656,20 @@ async function markClanBleed(clanId) {
   if (!clan) return;
 
   const ts = new Date().toISOString();
+
+  // Write audit log entry first — its doc ID is stored on the confirmedBleed
+  // entry (markLogId) so an unmark can flag this specific ping as a false
+  // alarm later without ambiguity (see confirmUnmarkBleed).
+  const logEntry = { clanId, clanName: clan.name, action: 'marked', by: loggedInUserName, byId: loggedInUserId, ts };
+  let markLogId = null;
+  try {
+    const logRef = await db.collection('bleedEventLog').add(logEntry);
+    markLogId = logRef.id;
+  } catch (e) {
+    console.warn('bleedEventLog write error', e);
+  }
+  bumpLastWrite();
+
   const entry = {
     active:    true,
     clanId:    clanId,
@@ -3655,8 +3677,10 @@ async function markClanBleed(clanId) {
     clanRank:  clan.rank,
     clanRep:   clan.reputation,
     markedBy:  loggedInUserName,
+    markedById: loggedInUserId,
     markedAt:  ts,
     roundId:   state.round.id || null,
+    markLogId: markLogId,
   };
 
   // Write confirmed bleed doc
@@ -3664,11 +3688,7 @@ async function markClanBleed(clanId) {
     .catch(e => console.warn('confirmedBleeds write error', e));
   syncBleedsToServer({ [clanId]: entry }); // notify server → immediate SSE broadcast
 
-  // Write audit log entry
-  const logEntry = { clanId, clanName: clan.name, action: 'marked', by: loggedInUserName, byId: loggedInUserId, ts };
-  await db.collection('bleedEventLog').add(logEntry)
-    .catch(e => console.warn('bleedEventLog write error', e));
-  bumpLastWrite();
+  bumpOptimisticPendingPing(); // instant "+1 pending sync" on the live progress card, if a Ping Event is running
 
   notifyConfirmedBleeding(clan.name, `${clanId}:${ts}`);
   fetch(PUSH_CONFIRMED_URL, {
@@ -3694,6 +3714,8 @@ function showUnmarkBleedModal(clanId) {
   const at   = info && info.markedAt ? fmtHMS(new Date(info.markedAt)) : '';
   const subEl = document.getElementById('bleed-modal-sub');
   if (subEl) subEl.textContent = `"${name}" was marked as bleeding by ${by}${at ? ' at ' + at : ''}. Are you sure you want to unmark it?`;
+  const cb = document.getElementById('bleed-modal-false-alarm-cb');
+  if (cb) cb.checked = false;
   const overlay = document.getElementById('bleed-modal-overlay');
   if (overlay) overlay.classList.add('visible');
 }
@@ -3706,22 +3728,39 @@ function closeBleedModal() {
 
 async function confirmUnmarkBleed() {
   const clanId = _pendingUnmarkClanId;
+  const cb = document.getElementById('bleed-modal-false-alarm-cb');
+  const isFalseAlarm = !!(cb && cb.checked);
   closeBleedModal();
   if (!clanId || !db || !loggedInUserName) return;
 
   const clan = getClanById(clanId);
-  const clanName = (confirmedBleeds[clanId] && confirmedBleeds[clanId].clanName) || (clan ? clan.name : '?');
+  const info = confirmedBleeds[clanId];
+  const clanName = (info && info.clanName) || (clan ? clan.name : '?');
 
   // Mark as inactive (keep the doc for audit purposes)
   await db.collection('confirmedBleeds').doc(String(clanId)).set({ active: false }, { merge: true })
     .catch(e => console.warn('confirmedBleeds clear error', e));
   syncBleedsToServer({ [clanId]: { active: false } }); // notify server → immediate SSE broadcast
 
-  // Write audit log entry
+  // Write audit log entry — records who unmarked it (may differ from who
+  // originally pinged it), and whether it was flagged a false alarm.
   const ts = new Date().toISOString();
-  const logEntry = { clanId, clanName, action: 'cleared', by: loggedInUserName, byId: loggedInUserId, ts };
+  const logEntry = { clanId, clanName, action: 'cleared', by: loggedInUserName, byId: loggedInUserId, ts, falseAlarm: isFalseAlarm };
   await db.collection('bleedEventLog').add(logEntry)
     .catch(e => console.warn('bleedEventLog write error', e));
+
+  // If flagged a false alarm, retroactively flag the original "marked" ping
+  // itself so it's excluded from the Ping Event tally — confirmed or
+  // pending — regardless of who originally made it.
+  if (isFalseAlarm && info && info.markLogId) {
+    await db.collection('bleedEventLog').doc(info.markLogId).set({
+      falseAlarm:     true,
+      falseAlarmBy:   loggedInUserName,
+      falseAlarmById: loggedInUserId,
+      falseAlarmAt:   ts,
+    }, { merge: true }).catch(e => console.warn('bleedEventLog false-alarm flag error', e));
+  }
+
   bumpLastWrite();
 
   // Discord follow-up ping
@@ -5224,6 +5263,12 @@ function subscribeEventGains(eventId) {
     .onSnapshot(snap => {
       if (snap.exists) {
         eventGainsData[eventId] = snap.data();
+        // The server has synced since our optimistic bump — its real
+        // pendingPings count now reflects our tap, so drop the local overlay.
+        const overlay = optimisticPendingPings[eventId];
+        if (overlay && snap.data().lastUpdated >= overlay.bumpedAt) {
+          delete optimisticPendingPings[eventId];
+        }
         if (state.currentTab === 'events' && evLiveId === eventId) {
           const lpEl = document.getElementById('ev-lp-' + eventId);
           if (lpEl) lpEl.innerHTML = renderLiveProgress(eventId);
@@ -5231,6 +5276,27 @@ function subscribeEventGains(eventId) {
       }
     }, err => console.warn('eventGains listener error', err));
   eventGainsListeners[eventId] = unsub;
+}
+
+// ── Optimistic "+1 pending sync" badge ──────────────────────────────────────
+// The server only re-tallies bleedEventLog every ~20s (EVENT_PING_TALLY_INTERVAL_MS
+// in server.js), so right after you mark a clan bleeding your own ping count
+// wouldn't visibly move for up to ~20s. This shows an instant local "+1
+// pending sync" the moment you tap, cleared automatically once the real
+// server tally (delivered via the eventGains listener above) catches up.
+let optimisticPendingPings = {}; // eventId → { count, bumpedAt }
+
+function bumpOptimisticPendingPing() {
+  if (!loggedInUserId) return;
+  const activePingEvent = eventsData.find(ev => ev.trackPings && evStatusOf(ev) === 'active');
+  if (!activePingEvent) return;
+  const id = activePingEvent.id;
+  const existing = optimisticPendingPings[id];
+  optimisticPendingPings[id] = { count: (existing ? existing.count : 0) + 1, bumpedAt: Date.now() };
+  if (state.currentTab === 'events' && evLiveId === id) {
+    const lpEl = document.getElementById('ev-lp-' + id);
+    if (lpEl) lpEl.innerHTML = renderLiveProgress(id);
+  }
 }
 
 function evStatusOf(ev) {
@@ -5428,8 +5494,13 @@ function renderLiveProgress(eventId) {
   const isPingEvent = !!ev.trackPings;
   const minRepGain  = ev.minRepGain || 0;
 
+  // Optimistic local "+1 pending sync" — covers the up-to-~20s gap before the
+  // server's own tally (and its real pendingPings count) lands; cleared
+  // automatically once it does (see subscribeEventGains).
+  const localPending = (isActive && optimisticPendingPings[eventId]) ? optimisticPendingPings[eventId].count : 0;
+
   const sorted = Object.entries(gains.members)
-    .map(([id, m]) => ({ id, pings: 0, ...m }))
+    .map(([id, m]) => ({ id, pings: 0, pendingPings: 0, ...m }))
     .sort((a, b) => isPingEvent
       ? (b.pings - a.pings) || (b.eventGain - a.eventGain)
       : (b.eventGain - a.eventGain));
@@ -5444,6 +5515,13 @@ function renderLiveProgress(eventId) {
   const eligBadge = (m) => (isPingEvent && minRepGain > 0)
     ? `<span class="ev-lp-elig ${eligible(m) ? 'yes' : 'no'}">${eligible(m) ? '\u2713 Eligible' : 'Not yet'}</span>`
     : '';
+  // Pending pings are still inside their 30-min round and haven't been
+  // confirmed yet (or synced from a very recent tap) — shown separately so
+  // they're never mistaken for a locked-in point.
+  const pendingBadge = (m, extra) => {
+    const p = (m.pendingPings || 0) + (extra || 0);
+    return p > 0 ? `<span class="ev-lp-pending">+${p} pending</span>` : '';
+  };
 
   // ── Pinned "Your Score" hero card ─────────────────────────────────────────
   let myCardHtml = '';
@@ -5454,7 +5532,7 @@ function renderLiveProgress(eventId) {
     const medalEmoji = myRank === 1 ? '\uD83E\uDD47' : myRank === 2 ? '\uD83E\uDD48' : myRank === 3 ? '\uD83E\uDD49' : null;
     const rankLabel = medalEmoji ? `${medalEmoji} #${myRank}` : `#${myRank}`;
     const myPingsHtml = isPingEvent
-      ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">\uD83C\uDFD3 ${myEntry.pings} ping${myEntry.pings !== 1 ? 's' : ''} \u00B7 ${myGain} rep this season ${eligBadge(myEntry)}</div>`
+      ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">\uD83C\uDFD3 ${myEntry.pings} ping${myEntry.pings !== 1 ? 's' : ''} ${pendingBadge(myEntry, localPending)} \u00B7 ${myGain} rep this season ${eligBadge(myEntry)}</div>`
       : '';
     myCardHtml = `<div class="ev-my-score-card">
       <div class="ev-my-score-label">Your Score</div>
@@ -5478,8 +5556,9 @@ function renderLiveProgress(eventId) {
     const gStr = m.eventGain > 0 ? '+' + fmtNum(m.eventGain) : '0';
     const youTag = isMe ? ' <span class="ev-you-tag">you</span>' : '';
     if (isPingEvent) {
+      const rowPending = pendingBadge(m, isMe ? localPending : 0);
       return `<div class="${rowCls}"><div class="${rCls}">#${rank}</div>` +
-        `<div class="ev-lp-name">${esc(m.name)}${youTag}<div style="font-size:10.5px;color:var(--text3);margin-top:1px;white-space:normal">${gStr} rep this season${eligBadge(m)}</div></div>` +
+        `<div class="ev-lp-name">${esc(m.name)}${youTag}<div style="font-size:10.5px;color:var(--text3);margin-top:1px;white-space:normal">${rowPending ? rowPending + ' \u00B7 ' : ''}${gStr} rep this season${eligBadge(m)}</div></div>` +
         `<div class="ev-lp-pings">${m.pings || 0}</div></div>`;
     }
     return `<div class="${rowCls}"><div class="${rCls}">#${rank}</div><div class="ev-lp-name">${esc(m.name)}${youTag}</div><div class="${gCls}">${gStr}</div></div>`;
