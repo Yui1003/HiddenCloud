@@ -710,6 +710,228 @@ function recordGainEvents(json) {
   return [...bleedingClanIds].map((id) => current.get(id)).filter(Boolean);
 }
 
+// ── Events: reputation-gain tracking + Ping Event ping tallying ───────────────
+// Powers the "Live Progress" leaderboard already built into the client (the
+// `eventGains/{eventId}` doc it listens to) for every event, and additionally
+// tracks per-member bleed-ping counts for events with `trackPings: true`
+// ("Ping Events") so the leaderboard can rank leading pingers and flag who has
+// met the event's minimum reputation-gain eligibility bar.
+
+const EVENT_GAINS_FILE            = path.join(DATA_DIR, 'event-gains-state.json');
+const EVENT_GAINS_SYNC_INTERVAL_MS = 20_000;      // throttle eventGains/{id} Firestore writes
+const EVENT_PING_TALLY_INTERVAL_MS = 20_000;      // how often to re-tally bleedEventLog for Ping Events
+const EVENTS_LIST_REFRESH_MS       = 30_000;      // how often to re-read the events collection
+const EVENT_GAINS_GRACE_MS         = 10 * 60_000; // keep tracking 10 min after an event ends
+
+let cachedEvents           = [];   // events worth tracking right now (started, not long-ended)
+let lastEventsListFetch    = 0;
+let eventGainsState        = readJson(EVENT_GAINS_FILE, {}); // eventId → { members: { id → {name,startRep,currentRep,pings} } }
+let lastEventPingTally     = {};   // eventId → ms of last bleedEventLog tally
+const _eventGainsSyncTimers = {};  // eventId → timeout handle
+const _lastEventGainsSync   = {};  // eventId → ms
+
+// Structured-query REST call (list/GET only supports pagination, not filters —
+// this is needed to filter bleedEventLog by action + a ts range).
+async function firestoreRunQuery(structuredQuery) {
+  const token = await getFirebaseToken();
+  const res = await fetch(`${FIRESTORE_BASE}:runQuery`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ structuredQuery }),
+  });
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => '');
+    // On the very first run this typically fails until a Firestore composite
+    // index (bleedEventLog: action ASC, ts ASC) exists — the error body from
+    // Firestore includes a direct console link to auto-create it.
+    throw new Error(`Firestore runQuery HTTP ${res.status}: ${bodyText.slice(0, 500)}`);
+  }
+  const rows = await res.json();
+  return rows
+    .filter((r) => r.document)
+    .map((r) => {
+      const out = { id: r.document.name.split('/').pop() };
+      for (const [k, v] of Object.entries(r.document.fields || {})) out[k] = fsRestVal(v);
+      return out;
+    });
+}
+
+// Refreshes `cachedEvents` from Firestore `events`, throttled. Keeps any event
+// that has started (or hasn't ended long ago) so its gains stay up to date.
+async function refreshCachedEvents() {
+  const now = Date.now();
+  if (now - lastEventsListFetch < EVENTS_LIST_REFRESH_MS) return;
+  lastEventsListFetch = now;
+  try {
+    const docs = [];
+    let pageToken = null;
+    do {
+      const qs = 'pageSize=200' + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+      const res = await firestoreRequest('GET', `/events?${qs}`);
+      if (!res.ok) return; // leave cachedEvents untouched on any read failure
+      const data = await res.json();
+      for (const d of data.documents || []) {
+        const out = { id: d.name.split('/').pop() };
+        for (const [k, v] of Object.entries(d.fields || {})) out[k] = fsRestVal(v);
+        docs.push(out);
+      }
+      pageToken = data.nextPageToken || null;
+    } while (pageToken);
+
+    cachedEvents = docs.filter((ev) =>
+      typeof ev.startTs === 'number' &&
+      typeof ev.endTs === 'number' &&
+      now <= ev.endTs + EVENT_GAINS_GRACE_MS
+    );
+  } catch (e) {
+    console.warn('[events] Failed to refresh events list:', e.message);
+  }
+}
+
+function scheduleEventGainsSync(eventId) {
+  if (_eventGainsSyncTimers[eventId]) return; // already queued
+  const last  = _lastEventGainsSync[eventId] || 0;
+  const delay = Math.max(0, EVENT_GAINS_SYNC_INTERVAL_MS - (Date.now() - last));
+  _eventGainsSyncTimers[eventId] = setTimeout(() => {
+    _eventGainsSyncTimers[eventId] = null;
+    syncEventGainsToFirestore(eventId).catch((e) =>
+      console.warn(`[events] Sync error for ${eventId}:`, e.message));
+  }, delay);
+}
+
+async function syncEventGainsToFirestore(eventId) {
+  const st = eventGainsState[eventId];
+  if (!st) return;
+  _lastEventGainsSync[eventId] = Date.now();
+  const members = {};
+  for (const [id, m] of Object.entries(st.members)) {
+    members[id] = {
+      name:       m.name,
+      startRep:   m.startRep,
+      currentRep: m.currentRep,
+      eventGain:  Math.max(0, m.currentRep - m.startRep),
+      pings:      m.pings || 0,
+    };
+  }
+  const res = await firestoreRequest('PATCH', `/eventGains/${eventId}`, fsDoc({
+    lastUpdated: Date.now(),
+    members,
+  }));
+  if (!res.ok) console.warn(`[events] eventGains sync failed for ${eventId}:`, res.status);
+}
+
+// Tallies bleed pings ('marked' bleedEventLog entries with a byId) that fall
+// within [event.startTs, min(now, event.endTs)] for Ping Events. Throttled
+// per-event since it's an extra Firestore query.
+async function tallyEventPings(ev) {
+  const now  = Date.now();
+  const last = lastEventPingTally[ev.id] || 0;
+  if (now - last < EVENT_PING_TALLY_INTERVAL_MS) return;
+  lastEventPingTally[ev.id] = now;
+
+  const startIso = new Date(ev.startTs).toISOString();
+  const endIso   = new Date(Math.min(now, ev.endTs)).toISOString();
+
+  let rows;
+  try {
+    rows = await firestoreRunQuery({
+      from: [{ collectionId: 'bleedEventLog' }],
+      where: {
+        compositeFilter: {
+          op: 'AND',
+          filters: [
+            { fieldFilter: { field: { fieldPath: 'action' }, op: 'EQUAL', value: { stringValue: 'marked' } } },
+            { fieldFilter: { field: { fieldPath: 'ts' }, op: 'GREATER_THAN_OR_EQUAL', value: { stringValue: startIso } } },
+            { fieldFilter: { field: { fieldPath: 'ts' }, op: 'LESS_THAN_OR_EQUAL', value: { stringValue: endIso } } },
+          ],
+        },
+      },
+      limit: 1000,
+    });
+  } catch (e) {
+    console.warn(`[events] ping tally query failed for ${ev.id}:`, e.message);
+    return;
+  }
+
+  const counts = {};
+  for (const row of rows) {
+    if (!row.byId) continue; // log entries written before the Ping Event feature have no linked member id
+    counts[row.byId] = (counts[row.byId] || 0) + 1;
+  }
+
+  const st = eventGainsState[ev.id];
+  if (!st) return;
+  let changed = false;
+  for (const [id, count] of Object.entries(counts)) {
+    if (!st.members[id]) st.members[id] = { name: null, startRep: 0, currentRep: 0, pings: 0 };
+    if (st.members[id].pings !== count) { st.members[id].pings = count; changed = true; }
+  }
+  for (const id of Object.keys(st.members)) {
+    if (!(id in counts) && st.members[id].pings) { st.members[id].pings = 0; changed = true; }
+  }
+  if (changed) scheduleEventGainsSync(ev.id);
+}
+
+// Called every rankings poll (alongside updateWeeklyGains). Snapshots each
+// member's reputation baseline the moment an event starts, tracks live gains
+// while it's running, and (for Ping Events) tallies pinger standings.
+function updateEventGains(json) {
+  const hcClan = (json.clans || []).find((c) => c.id === HIDDEN_CLOUD_CLAN_ID);
+  if (!hcClan) return;
+  const now = Date.now();
+
+  for (const ev of cachedEvents) {
+    if (now < ev.startTs) continue; // not started yet — no baseline to snapshot
+    if (!eventGainsState[ev.id]) eventGainsState[ev.id] = { members: {} };
+    const st = eventGainsState[ev.id];
+    let changed = false;
+
+    if (now <= ev.endTs) {
+      for (const member of hcClan.member_list || []) {
+        const id  = String(member.id);
+        const rep = member.reputation;
+        if (!st.members[id]) {
+          // First time seen during this event — baseline them now (covers
+          // both the event's start and anyone who joins the clan mid-event).
+          //
+          // Ping Events measure reputation gained since the SEASON started,
+          // not since the event started — and the rankings API already
+          // reports `reputation` as cumulative for the season (see the note
+          // in updateWeeklyGains above), so that baseline is always 0; the
+          // member's live reputation figure *is* their season-to-date gain.
+          // Regular (non-ping) events keep the event-start snapshot, since
+          // their conditions are meant to measure gain during the event.
+          st.members[id] = { name: member.name, startRep: ev.trackPings ? 0 : rep, currentRep: rep, pings: 0 };
+          changed = true;
+        } else {
+          if (st.members[id].name !== member.name) { st.members[id].name = member.name; changed = true; }
+          if (typeof rep === 'number' && rep > st.members[id].currentRep) { st.members[id].currentRep = rep; changed = true; }
+        }
+      }
+    }
+
+    // One-time flag so the client knows the server has started tracking this
+    // event (it resets this to false whenever the start time is edited).
+    if (!ev.snapshotTaken) {
+      ev.snapshotTaken = true;
+      firestoreRequest('PATCH', `/events/${ev.id}?updateMask.fieldPaths=snapshotTaken`, fsDoc({ snapshotTaken: true }))
+        .catch((e) => console.warn(`[events] snapshotTaken flag write failed for ${ev.id}:`, e.message));
+    }
+
+    if (ev.trackPings) tallyEventPings(ev).catch((e) => console.warn(`[events] ping tally error for ${ev.id}:`, e.message));
+
+    if (changed) scheduleEventGainsSync(ev.id);
+  }
+
+  if (Object.keys(eventGainsState).length) writeJson(EVENT_GAINS_FILE, eventGainsState);
+
+  // Drop local state for events that have fallen out of the tracking window.
+  const liveIds = new Set(cachedEvents.map((e) => e.id));
+  for (const id of Object.keys(eventGainsState)) {
+    if (!liveIds.has(id)) delete eventGainsState[id];
+  }
+}
+
 // ── Membership purge ──────────────────────────────────────────────────────────
 // Runs every 5 minutes during the poll loop. Removes push subscriptions whose
 // userId is no longer in the Hidden Cloud Village member list. Subscriptions
@@ -763,6 +985,9 @@ async function pollForPossibleBleeding() {
     }
 
     updateWeeklyGains(json);
+
+    await refreshCachedEvents();
+    updateEventGains(json);
 
     const bleedingClans = recordGainEvents(json);
     if (bleedingClans.length > POSSIBLE_BLEEDING_CLAN_THRESHOLD) {
