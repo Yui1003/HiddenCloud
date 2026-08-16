@@ -479,11 +479,53 @@ function updateWeeklyGains(json) {
     weeklyGainsState.weekEndLabel = toPhDateStr(weeklyGainsState.weekEndTs);
   }
 
+  // Safety net: the week anchor fields can end up missing or nonsensical —
+  // e.g. adopted from an older-schema Firestore doc that predates this
+  // week-cutting logic, where the new fields come back as null. Trusting
+  // that blindly would make the loop below treat null as epoch (1970) and
+  // walk forward one week at a time thousands of times to catch up to now,
+  // firing that many Firestore writes and re-baselining members thousands
+  // of times in a row. Detect that up front and reseed directly instead.
+  const MIN_VALID_TS = Date.UTC(2024, 0, 1); // sanity floor — this app didn't exist before this
+  const hasValidWeekAnchor =
+    typeof weeklyGainsState.seasonStartTs === 'number' && weeklyGainsState.seasonStartTs > MIN_VALID_TS &&
+    typeof weeklyGainsState.weekStartTs   === 'number' && weeklyGainsState.weekStartTs >= weeklyGainsState.seasonStartTs &&
+    typeof weeklyGainsState.weekEndTs     === 'number' && weeklyGainsState.weekEndTs > weeklyGainsState.weekStartTs &&
+    weeklyGainsState.weekEndTs <= weeklyGainsState.seasonEndTs + 1000 &&
+    Number.isInteger(weeklyGainsState.weekIndex) && weeklyGainsState.weekIndex > 0 && weeklyGainsState.weekIndex < 1000;
+
+  if (!hasValidWeekAnchor) {
+    console.warn('[weekly] Invalid/missing week anchor detected — reseeding from current reputation instead of walking forward from it.');
+    const prevMembers = weeklyGainsState.members || {};
+    const reseeded = seedSeasonState(weeklyGainsState.seasonId, weeklyGainsState.seasonEndTs, now);
+    // Carry forward any gain already legitimately observed this (broken)
+    // week rather than zeroing it out, so real tracked progress isn't lost.
+    for (const [id, m] of Object.entries(prevMembers)) {
+      if (typeof m.currentRep !== 'number') continue;
+      const priorGain = Math.max(0, m.currentRep - (typeof m.weekStartRep === 'number' ? m.weekStartRep : m.currentRep));
+      reseeded.members[id] = { name: m.name, weekStartRep: m.currentRep - priorGain, currentRep: m.currentRep };
+    }
+    weeklyGainsState = reseeded;
+    writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
+    if (weeklyGainsWriteAllowed) {
+      syncWeeklyGainsToFirestore().catch((e) =>
+        console.warn('[weekly] Reseed sync error:', e.message));
+    }
+  }
+
   // Weekly cut: once the current week's boundary has passed (and the season
   // itself hasn't ended yet), archive it and start the next 7-day block. A
   // loop (not a single if) so a long server outage catches up to the real
-  // current week in one poll instead of needing one poll cycle per missed week.
+  // current week in one poll instead of needing one poll cycle per missed
+  // week. Capped as defense-in-depth — the safety net above should mean this
+  // never runs more than a couple of times in practice.
+  let cutIterations = 0;
   while (now >= weeklyGainsState.weekEndTs && now < weeklyGainsState.seasonEndTs) {
+    if (++cutIterations > 10) {
+      console.error('[weekly] Weekly-cut loop exceeded 10 iterations — reseeding instead of continuing to walk forward.');
+      weeklyGainsState = seedSeasonState(weeklyGainsState.seasonId, weeklyGainsState.seasonEndTs, now);
+      break;
+    }
     archiveWeekToFirestore(weeklyGainsState).catch((e) =>
       console.warn('[weekly] Archive error:', e.message));
     const prevMembers = weeklyGainsState.members;
