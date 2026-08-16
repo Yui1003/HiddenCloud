@@ -806,11 +806,12 @@ async function syncEventGainsToFirestore(eventId) {
   const members = {};
   for (const [id, m] of Object.entries(st.members)) {
     members[id] = {
-      name:       m.name,
-      startRep:   m.startRep,
-      currentRep: m.currentRep,
-      eventGain:  Math.max(0, m.currentRep - m.startRep),
-      pings:      m.pings || 0,
+      name:         m.name,
+      startRep:     m.startRep,
+      currentRep:   m.currentRep,
+      eventGain:    Math.max(0, m.currentRep - m.startRep),
+      pings:        m.pings || 0,
+      pendingPings: m.pendingPings || 0,
     };
   }
   const res = await firestoreRequest('PATCH', `/eventGains/${eventId}`, fsDoc({
@@ -820,9 +821,27 @@ async function syncEventGainsToFirestore(eventId) {
   if (!res.ok) console.warn(`[events] eventGains sync failed for ${eventId}:`, res.status);
 }
 
+// Rounds are aligned to the game's fixed :00/:30 half-hour marks — mirrors
+// getRoundStart() in index.html so a ping's "round" matches what the client
+// shows (and matches when the client's Unmark button stops being clickable).
+const ROUND_LENGTH_MS = 30 * 60_000;
+function roundStartMs(ts) {
+  const d = new Date(ts);
+  d.setSeconds(0, 0);
+  if (d.getMinutes() < 30) d.setMinutes(0); else d.setMinutes(30);
+  return d.getTime();
+}
+
 // Tallies bleed pings ('marked' bleedEventLog entries with a byId) that fall
 // within [event.startTs, min(now, event.endTs)] for Ping Events. Throttled
 // per-event since it's an extra Firestore query.
+//
+// A ping only becomes a *confirmed* point once the 30-min round it was made
+// in has fully ended — that's also the window during which it can still be
+// unmarked in-app, so a ping that gets flagged as a false alarm and undone
+// before its round closes is dropped instead of counted. Entries flagged
+// `falseAlarm: true` (see confirmUnmarkBleed in index.html) never count,
+// confirmed or pending, regardless of round.
 async function tallyEventPings(ev) {
   const now  = Date.now();
   const last = lastEventPingTally[ev.id] || 0;
@@ -853,21 +872,30 @@ async function tallyEventPings(ev) {
     return;
   }
 
-  const counts = {};
+  const confirmedCounts = {};
+  const pendingCounts   = {};
   for (const row of rows) {
-    if (!row.byId) continue; // log entries written before the Ping Event feature have no linked member id
-    counts[row.byId] = (counts[row.byId] || 0) + 1;
+    if (!row.byId) continue;      // log entries written before the Ping Event feature have no linked member id
+    if (row.falseAlarm) continue; // flagged as a false alarm — never counts
+
+    const roundEnd = roundStartMs(row.ts) + ROUND_LENGTH_MS;
+    if (now >= roundEnd) {
+      confirmedCounts[row.byId] = (confirmedCounts[row.byId] || 0) + 1;
+    } else {
+      pendingCounts[row.byId] = (pendingCounts[row.byId] || 0) + 1;
+    }
   }
 
   const st = eventGainsState[ev.id];
   if (!st) return;
   let changed = false;
-  for (const [id, count] of Object.entries(counts)) {
-    if (!st.members[id]) st.members[id] = { name: null, startRep: 0, currentRep: 0, pings: 0 };
-    if (st.members[id].pings !== count) { st.members[id].pings = count; changed = true; }
-  }
-  for (const id of Object.keys(st.members)) {
-    if (!(id in counts) && st.members[id].pings) { st.members[id].pings = 0; changed = true; }
+  const allIds = new Set([...Object.keys(confirmedCounts), ...Object.keys(pendingCounts), ...Object.keys(st.members)]);
+  for (const id of allIds) {
+    if (!st.members[id]) st.members[id] = { name: null, startRep: 0, currentRep: 0, pings: 0, pendingPings: 0 };
+    const confirmed = confirmedCounts[id] || 0;
+    const pending   = pendingCounts[id] || 0;
+    if (st.members[id].pings !== confirmed) { st.members[id].pings = confirmed; changed = true; }
+    if (st.members[id].pendingPings !== pending) { st.members[id].pendingPings = pending; changed = true; }
   }
   if (changed) scheduleEventGainsSync(ev.id);
 }
@@ -901,7 +929,7 @@ function updateEventGains(json) {
           // member's live reputation figure *is* their season-to-date gain.
           // Regular (non-ping) events keep the event-start snapshot, since
           // their conditions are meant to measure gain during the event.
-          st.members[id] = { name: member.name, startRep: ev.trackPings ? 0 : rep, currentRep: rep, pings: 0 };
+          st.members[id] = { name: member.name, startRep: ev.trackPings ? 0 : rep, currentRep: rep, pings: 0, pendingPings: 0 };
           changed = true;
         } else {
           if (st.members[id].name !== member.name) { st.members[id].name = member.name; changed = true; }
