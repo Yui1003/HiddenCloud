@@ -20,8 +20,8 @@
   --bg: #0a0a0a;
   --bg2: #111111;
   --bg3: #191400;
-  --card: rgba(20,20,20,0.82);
-  --card2: rgba(30,26,0,0.82);
+  --card: rgba(20,20,20,0.55);
+  --card2: rgba(30,26,0,0.55);
   --border: #2a2000;
   --border2: #3d3000;
   --text: #f0f0f0;
@@ -62,9 +62,9 @@ body::before{
   content:'';
   position:fixed;
   inset:0;
-  background:var(--bg) url('./hidden-cloud-logo.png') center / min(78vw,560px) no-repeat;
+  background:var(--bg) url('./hidden-cloud-logo.png') center / min(100vw,680px) no-repeat;
   background-blend-mode:screen;
-  opacity:0.4;
+  opacity:0.5;
   pointer-events:none;
   z-index:-1;
 }
@@ -447,7 +447,7 @@ body::before{
    LOGIN SCREEN
    ============================================================ */
 #login-screen{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 20px;overflow-y:auto}
-#login-screen::before{content:'';position:absolute;inset:0;background:var(--bg) url('./hidden-cloud-logo.png') center / min(78vw,560px) no-repeat;background-blend-mode:screen;opacity:0.4;pointer-events:none;z-index:-1}
+#login-screen::before{content:'';position:absolute;inset:0;background:var(--bg) url('./hidden-cloud-logo.png') center / min(100vw,680px) no-repeat;background-blend-mode:screen;opacity:0.5;pointer-events:none;z-index:-1}
 .login-card{width:100%;max-width:380px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:30px 24px;display:flex;flex-direction:column;gap:20px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
 .login-logo{width:60px;height:60px;object-fit:contain;border-radius:16px;display:block;margin:0 auto;box-shadow:0 8px 28px rgba(240,165,0,0.35)}
 .login-branding{text-align:center}
