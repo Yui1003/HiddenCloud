@@ -925,8 +925,8 @@ function recordGainEvents(json) {
 // met the event's minimum reputation-gain eligibility bar.
 
 const EVENT_GAINS_FILE            = path.join(DATA_DIR, 'event-gains-state.json');
-const EVENT_GAINS_SYNC_INTERVAL_MS = 20_000;      // throttle eventGains/{id} Firestore writes
-const EVENT_PING_TALLY_INTERVAL_MS = 20_000;      // how often to re-tally bleedEventLog for Ping Events
+const EVENT_GAINS_SYNC_INTERVAL_MS = POLL_INTERVAL_MS;      // throttle eventGains/{id} Firestore writes
+const EVENT_PING_TALLY_INTERVAL_MS = POLL_INTERVAL_MS;      // how often to re-tally bleedEventLog for Ping Events
 const EVENTS_LIST_REFRESH_MS       = 30_000;      // how often to re-read the events collection
 const EVENT_GAINS_GRACE_MS         = 10 * 60_000; // keep tracking 10 min after an event ends
 
