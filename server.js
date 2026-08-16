@@ -16,9 +16,7 @@ const SUBSCRIPTIONS_FILE = path.join(DATA_DIR, 'push-subscriptions.json'); // lo
 const DETECTOR_STATE_FILE = path.join(DATA_DIR, 'push-detector-state.json');
 const FIREBASE_TOKEN_FILE = path.join(DATA_DIR, 'firebase-token.json');
 const WEEKLY_GAINS_FILE         = path.join(DATA_DIR, 'weekly-gains-state.json');
-const DISCORD_WEBHOOK_CACHE_FILE = path.join(DATA_DIR, 'discord-webhook-cache.json');
 
-const DISCORD_WEBHOOK_CACHE_TTL_MS = 60 * 60_000;  // 1 hour
 const WEEKLY_GAINS_SYNC_INTERVAL_MS = 5 * 60_000;  // Write weeklyGains/777 at most every 5 min
 const WEEKLY_GAINS_RESTORE_RETRY_MS = 60_000;       // Retry a failed baseline restore
 const CONFIRMED_BLEEDS_FALLBACK_POLL_MS = 30_000;  // Re-read confirmedBleeds every 30 s as fallback
@@ -869,31 +867,23 @@ async function archiveWeekToFirestore(st) {
   else         console.log('[weekly] Archived week', st.weekKey, 'to weeklyGainsHistory.');
 }
 
-// ── Discord webhook URL cache ─────────────────────────────────────────────────
-// Persisted to disk so it survives server restarts without a Firestore read.
-// TTL is 1 hour — if admin updates the URL, restart the server to force refresh.
-const _savedWebhook = readJson(DISCORD_WEBHOOK_CACHE_FILE, { url: null, fetchedAt: 0 });
-let discordWebhookCache = (_savedWebhook.url !== null &&
-  Date.now() - (_savedWebhook.fetchedAt || 0) < DISCORD_WEBHOOK_CACHE_TTL_MS)
-  ? _savedWebhook : { url: null, fetchedAt: 0 };
-
+// ── Discord webhook URL lookup ────────────────────────────────────────────────
+// Always reads straight from Firestore — no in-memory or disk cache. A webhook
+// URL saved in Settings takes effect on the very next bleed ping, with zero
+// staleness window and no risk of an old cached URL pinging the wrong channel.
+// This is a single cheap doc GET, only triggered when someone actually marks
+// a clan bleeding (not part of the poll loop), so the extra read is negligible.
 async function getDiscordWebhookUrl() {
-  const now = Date.now();
-  if (discordWebhookCache.url !== null && now - discordWebhookCache.fetchedAt < DISCORD_WEBHOOK_CACHE_TTL_MS) {
-    return discordWebhookCache.url;
-  }
   try {
     const snap = await firestoreRequest('GET', '/config/discordWebhook');
     if (snap.ok) {
       const doc = await snap.json();
-      discordWebhookCache = { url: doc.fields?.url?.stringValue || '', fetchedAt: now };
-      writeJson(DISCORD_WEBHOOK_CACHE_FILE, discordWebhookCache); // persist across restarts
-      return discordWebhookCache.url;
+      return doc.fields?.url?.stringValue || '';
     }
   } catch (e) {
     console.warn('Discord: failed to read webhook URL from Firestore:', e.message);
   }
-  return discordWebhookCache.url || '';
+  return '';
 }
 
 // ── Bleeding detector (server-side, runs even when no client is open) ─────────
