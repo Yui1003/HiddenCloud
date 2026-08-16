@@ -1289,6 +1289,26 @@ let confirmedBleeds = {};
 // Full audit log of bleed mark/unmark events — newest first
 // Each: { clanId, clanName, action ('marked'|'cleared'), by, ts (ISO) }
 let bleedEventLog = [];
+
+// Stable identity for a bleedEventLog entry, for dedup. Prefers the doc id
+// (as `_id` from a live SSE broadcast, or `id` from a Firestore-backfilled
+// snapshot — the server aliases the latter to `_id` too, but this fallback
+// covers already-cached responses and any entry that predates that fix).
+// Falls back to a content key so genuinely id-less entries still dedupe.
+function bleedEventKey(e) {
+  return e._id || e.id || `${e.clanId}_${e.action}_${e.ts}_${e.by}`;
+}
+function dedupeBleedEventLog(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const e of arr) {
+    const k = bleedEventKey(e);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(e);
+  }
+  return out;
+}
 // clanId pending unmark confirmation (set by showUnmarkBleedModal)
 let _pendingUnmarkClanId = null;
 // clanId pending mark confirmation (set by showMarkBleedModal)
@@ -1320,7 +1340,10 @@ function loadFromStorage() {
       for (const e of state.suspectLog) { suspectLogKeysSeen.add(e.dedupKey); }
     }
     if (saved.lastFirestoreSync) state.lastFirestoreSync = saved.lastFirestoreSync;
-    if (saved.bleedEventLog) bleedEventLog = saved.bleedEventLog;
+    // dedupeBleedEventLog cleans up any entries already tripled by the old
+    // backfill _id/id mismatch (see bleedEventKey) — self-heals on next load,
+    // no need to clear storage manually.
+    if (saved.bleedEventLog) bleedEventLog = dedupeBleedEventLog(saved.bleedEventLog);
   } catch(e) { console.warn('Storage load error', e); }
 }
 
@@ -4741,10 +4764,11 @@ async function initFirestoreListeners() {
       state.roundHistory.sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
       if (state.roundHistory.length > 100) state.roundHistory = state.roundHistory.slice(-100);
 
-      const bleedDocIdsSeen = new Set(bleedEventLog.map(e => e._id).filter(Boolean));
+      const bleedDocIdsSeen = new Set(bleedEventLog.map(bleedEventKey));
       for (const entry of (snap.bleedEvents || [])) {
-        if (entry._id && bleedDocIdsSeen.has(entry._id)) continue;
-        if (entry._id) bleedDocIdsSeen.add(entry._id);
+        const k = bleedEventKey(entry);
+        if (bleedDocIdsSeen.has(k)) continue;
+        bleedDocIdsSeen.add(k);
         bleedEventLog.unshift(entry);
       }
       if (bleedEventLog.length > 500) bleedEventLog = bleedEventLog.slice(0, 500);
@@ -4807,7 +4831,8 @@ async function initFirestoreListeners() {
             const idx = bleedEventLog.findIndex(e => e._id === entry._patchId);
             if (idx !== -1) bleedEventLog[idx] = { ...bleedEventLog[idx], ...entry };
           } else {
-            if (entry._id && bleedEventLog.some(e => e._id === entry._id)) return;
+            const k = bleedEventKey(entry);
+            if (bleedEventLog.some(e => bleedEventKey(e) === k)) return;
             bleedEventLog.unshift(entry);
             if (bleedEventLog.length > 500) bleedEventLog = bleedEventLog.slice(0, 500);
           }
