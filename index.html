@@ -923,6 +923,38 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
           </div>
         </div>
 
+        <div class="settings-section" style="margin-top:10px;display:none" id="settings-tracking-controls-section">
+          <div class="settings-section-title">&#9203; Tracking Controls (Admin Only)</div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">Clan Deduction Tracking <span id="tracking-deduction-status" style="font-weight:700;margin-left:4px"></span></div>
+              <div class="settings-row-sub">Stops logging clan deduction changes (and the Firebase writes they cause) if the rankings API is misbehaving.</div>
+            </div>
+          </div>
+          <div class="settings-btn-row" style="padding:0 14px 10px">
+            <button class="btn-danger" id="btn-toggle-deduction-tracking" onclick="toggleDeductionTracking()">&#9209; Stop Deduction Tracking</button>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">Suspect Tracking <span id="tracking-suspect-status" style="font-weight:700;margin-left:4px"></span></div>
+              <div class="settings-row-sub">Stops logging cheater suspects (and the Firebase writes they cause) independently of deduction tracking.</div>
+            </div>
+          </div>
+          <div class="settings-btn-row" style="padding:0 14px 10px">
+            <button class="btn-danger" id="btn-toggle-suspect-tracking" onclick="toggleSuspectTracking()">&#9209; Stop Suspect Tracking</button>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">Both</div>
+              <div class="settings-row-sub">One tap to stop (or resume) both pipelines at once.</div>
+            </div>
+          </div>
+          <div class="settings-btn-row" style="padding:0 14px 14px">
+            <button class="btn-danger" id="btn-toggle-both-tracking" onclick="toggleBothTracking()">&#9209; Stop Both (Deduction + Suspect)</button>
+          </div>
+          <div class="settings-row-sub" style="padding:0 14px 12px">This pauses tracking for every open device, not just yours \u2014 the setting is shared and survives a server restart.</div>
+        </div>
+
         <div class="settings-section" style="margin-top:10px;display:none" id="settings-discord-section">
           <div class="settings-section-title">&#128226; Discord Webhook (Admin Only)</div>
           <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
@@ -1224,6 +1256,15 @@ const PUSH_CONFIRMED_URL = '/api/push/confirmed';
 // In-memory dedup set for suspectLog \u2014 rebuilt from storage on load
 // Prevents the same drop event being recorded twice across polls
 let suspectLogKeysSeen = new Set();
+
+// \u2500\u2500 Tracker pause switches (admin-controlled, server-authoritative) \u2500\u2500\u2500\u2500\u2500\u2500
+// Mirrors server.js's trackerPause. Synced on load via /api/tracker-snapshot
+// and kept live via the 'pauseState' tracker-stream event, so every open tab
+// (not just the admin's) reflects the current state immediately. When a flag
+// is true, this client stops detecting AND reporting that event type \u2014 the
+// server also refuses the write as a backstop, but skipping it here avoids
+// wasted network calls too.
+let trackerPause = { deductions: false, suspects: false };
 
 // \u2500\u2500 Access level \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 // 'normal' = default (Rankings, Risk Bleed, History, Settings only)
@@ -1852,6 +1893,12 @@ function getMemberPeak(clanId, memberId) {
 // value against the previous snapshot and logs any change with a timestamp.
 function recordDeductionChanges() {
   if (!state.data || !state.prevData) return;
+  // Admin has paused clan deduction tracking (e.g. the upstream rankings API
+  // is flapping deduction values). Skip detection entirely \u2014 nothing is
+  // logged locally and nothing is reported to the server, so no Firestore
+  // writes happen for either the deduction log or the suspects it would have
+  // captured below.
+  if (trackerPause.deductions) return;
   if (!state.deductionLog) state.deductionLog = [];
   const now = Date.now();
   for (const clan of state.data.clans) {
@@ -1881,40 +1928,44 @@ function recordDeductionChanges() {
     // getSuspectedCheaters() uses all 5 detection signals (peak tracker, poll
     // delta, round gain, rep reset) and returns suspects with suspicion levels
     // already computed against the deduction change we just logged.
-    if (!state.suspectLog) state.suspectLog = [];
-    const confirmedSuspects = getSuspectedCheaters(clan.id);
-    for (const s of confirmedSuspects) {
-      const peak = getMemberPeak(clan.id, s.id);
-      // Key aligns with the server-poller's dedupKey so both write to the same
-      // Firestore document (setDoc overwrites, no duplicates).
-      const dedupKey = (peak && peak.peak > 0)
-        ? `${clan.id}_${s.id}_${peak.peak}`
-        : `${clan.id}_${s.id}_ded${now}`;
-      if (suspectLogKeysSeen.has(dedupKey)) continue;
-      suspectLogKeysSeen.add(dedupKey);
-      const suspEntry = {
-        dedupKey,
-        ts:              now,   // timestamp of the OFFICIAL deduction event
-        clanId:          clan.id,
-        clanName:        clan.name,
-        clanRank:        clan.rank,
-        clanDeduction:   currDed,
-        memberId:        s.id,
-        memberName:      s.name,
-        memberLevel:     s.level,
-        memberRep:       s.reputation,
-        peakRep:         peak?.peak ?? s.reputation,
-        dropAmount:      s.dropAmount || 0,
-        dropCount:       s.dropCount  || 1,
-        confidence:      s.suspicionLevel === 'HIGH' ? 'HIGH' : 'MEDIUM',
-        suspicionLevel:  s.suspicionLevel  || 'LOW',
-        detectionSource: s.detectionSource || 'live',
-        reason:          s.reason,
-      };
-      state.suspectLog.unshift(suspEntry);
-      pushSuspectToFirestore(suspEntry);
+    // Skipped independently when suspect tracking specifically is paused,
+    // even if deduction tracking itself is still active.
+    if (!trackerPause.suspects) {
+      if (!state.suspectLog) state.suspectLog = [];
+      const confirmedSuspects = getSuspectedCheaters(clan.id);
+      for (const s of confirmedSuspects) {
+        const peak = getMemberPeak(clan.id, s.id);
+        // Key aligns with the server-poller's dedupKey so both write to the same
+        // Firestore document (setDoc overwrites, no duplicates).
+        const dedupKey = (peak && peak.peak > 0)
+          ? `${clan.id}_${s.id}_${peak.peak}`
+          : `${clan.id}_${s.id}_ded${now}`;
+        if (suspectLogKeysSeen.has(dedupKey)) continue;
+        suspectLogKeysSeen.add(dedupKey);
+        const suspEntry = {
+          dedupKey,
+          ts:              now,   // timestamp of the OFFICIAL deduction event
+          clanId:          clan.id,
+          clanName:        clan.name,
+          clanRank:        clan.rank,
+          clanDeduction:   currDed,
+          memberId:        s.id,
+          memberName:      s.name,
+          memberLevel:     s.level,
+          memberRep:       s.reputation,
+          peakRep:         peak?.peak ?? s.reputation,
+          dropAmount:      s.dropAmount || 0,
+          dropCount:       s.dropCount  || 1,
+          confidence:      s.suspicionLevel === 'HIGH' ? 'HIGH' : 'MEDIUM',
+          suspicionLevel:  s.suspicionLevel  || 'LOW',
+          detectionSource: s.detectionSource || 'live',
+          reason:          s.reason,
+        };
+        state.suspectLog.unshift(suspEntry);
+        pushSuspectToFirestore(suspEntry);
+      }
+      if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
     }
-    if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
   }
   // Cap log at 500 entries (newest first)
   if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
@@ -1928,6 +1979,7 @@ function recordDeductionChanges() {
 // (clanId_memberId_peak) prevents double-writes with recordDeductionChanges().
 function captureConfirmedSuspects() {
   if (!state.data || !state.deductionLog || !state.deductionLog.length) return;
+  if (trackerPause.suspects) return; // admin has paused suspect tracking
   if (!state.suspectLog) state.suspectLog = [];
   const now = Date.now();
   let anyAdded = false;
@@ -4611,6 +4663,13 @@ function setAccessLevel(level) {
   const archiveSection = document.getElementById('settings-season-archive-section');
   if (archiveSection) archiveSection.style.display = isAdmin ? '' : 'none';
 
+  // Settings: show/hide Tracking Controls section (admin only)
+  const trackingSection = document.getElementById('settings-tracking-controls-section');
+  if (trackingSection) {
+    trackingSection.style.display = isAdmin ? '' : 'none';
+    if (isAdmin) renderTrackingControls();
+  }
+
   // Settings: show/hide Discord webhook section (admin only)
   const discordSection = document.getElementById('settings-discord-section');
   if (discordSection) {
@@ -4637,6 +4696,67 @@ function setAccessLevel(level) {
 
 function exitAdminLevel() {
   setAccessLevel('normal');
+}
+
+// ============================================================
+// TRACKING CONTROLS (Admin Only)
+// ============================================================
+// Lets an admin pause the deduction/suspect auto-detection pipelines when the
+// upstream clan-rankings API is misbehaving (e.g. a deduction value flapping
+// every poll), which would otherwise cause a surge of Firestore read/write
+// traffic. Posts to the server, which is the single source of truth: it
+// persists the flag, stops accepting writes for that pipeline, and
+// broadcasts the new state to every connected client over the existing
+// tracker SSE stream — so the pause takes effect everywhere at once, not
+// just on the admin's own device.
+function setTrackerPause(patch) {
+  fetch('/api/tracker-pause', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }).then(res => res.json()).then(data => {
+    if (data && data.pause) { trackerPause = data.pause; renderTrackingControls(); }
+  }).catch(e => console.warn('tracker-pause update error', e));
+}
+
+function toggleDeductionTracking() {
+  setTrackerPause({ deductions: !trackerPause.deductions });
+}
+function toggleSuspectTracking() {
+  setTrackerPause({ suspects: !trackerPause.suspects });
+}
+function toggleBothTracking() {
+  // If either is currently active, "stop both" wins; only resumes both when
+  // both are already stopped.
+  const bothStopped = trackerPause.deductions && trackerPause.suspects;
+  setTrackerPause({ deductions: !bothStopped, suspects: !bothStopped });
+}
+
+function renderTrackingControls() {
+  const dedBtn = document.getElementById('btn-toggle-deduction-tracking');
+  const dedStatus = document.getElementById('tracking-deduction-status');
+  if (dedBtn && dedStatus) {
+    const stopped = !!trackerPause.deductions;
+    dedBtn.textContent = stopped ? '\u25B6 Resume Deduction Tracking' : '\u23F8 Stop Deduction Tracking';
+    dedBtn.className = stopped ? 'btn-primary' : 'btn-danger';
+    dedStatus.textContent = stopped ? 'Stopped' : 'Active';
+    dedStatus.style.color = stopped ? 'var(--red)' : 'var(--green)';
+  }
+  const suspBtn = document.getElementById('btn-toggle-suspect-tracking');
+  const suspStatus = document.getElementById('tracking-suspect-status');
+  if (suspBtn && suspStatus) {
+    const stopped = !!trackerPause.suspects;
+    suspBtn.textContent = stopped ? '\u25B6 Resume Suspect Tracking' : '\u23F8 Stop Suspect Tracking';
+    suspBtn.className = stopped ? 'btn-primary' : 'btn-danger';
+    suspStatus.textContent = stopped ? 'Stopped' : 'Active';
+    suspStatus.style.color = stopped ? 'var(--red)' : 'var(--green)';
+  }
+  const bothBtn = document.getElementById('btn-toggle-both-tracking');
+  if (bothBtn) {
+    const bothStopped = trackerPause.deductions && trackerPause.suspects;
+    bothBtn.textContent = bothStopped ? '\u25B6 Resume Both' : '\u23F8 Stop Both (Deduction + Suspect)';
+    bothBtn.className = bothStopped ? 'btn-primary' : 'btn-danger';
+  }
 }
 
 // ============================================================
@@ -4857,6 +4977,8 @@ async function initFirestoreListeners() {
       }
       if (bleedEventLog.length > 500) bleedEventLog = bleedEventLog.slice(0, 500);
 
+      if (snap.pause) { trackerPause = snap.pause; renderTrackingControls(); }
+
       state.lastFirestoreSync = Date.now();
       saveToStorage();
       updateSuspectsTabBadge();
@@ -4909,6 +5031,10 @@ async function initFirestoreListeners() {
           if (state.roundHistory.length > 100) state.roundHistory = state.roundHistory.slice(-100);
           saveToStorage();
           if (state.currentTab === 'history') renderHistory();
+
+        } else if (type === 'pauseState') {
+          trackerPause = entry;
+          renderTrackingControls();
 
         } else if (type === 'bleedEvent') {
           if (entry._patchId) {
@@ -5977,6 +6103,9 @@ window.showDiscordWebhookEditor     = showDiscordWebhookEditor;
 window.hideDiscordWebhookEditor     = hideDiscordWebhookEditor;
 window.showArchiveSeasonModal       = showArchiveSeasonModal;
 window.downloadSeasonReport         = downloadSeasonReport;
+window.toggleDeductionTracking      = toggleDeductionTracking;
+window.toggleSuspectTracking        = toggleSuspectTracking;
+window.toggleBothTracking           = toggleBothTracking;
 
 })(); // end IIFE \u2014 all internals (accessLevel, setAccessLevel, etc.) are private
 </script>
