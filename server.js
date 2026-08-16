@@ -1760,6 +1760,44 @@ app.post('/api/rounds', async (req, res) => {
   res.json({ ok: true, duplicate: !isNew });
 });
 
+// Deletes every doc in the roundHistory Firestore collection, clears the
+// server's in-memory cache + seen-key set (so /api/tracker-snapshot stops
+// serving deleted rounds to newly-opened tabs), and broadcasts to every
+// connected client so open tabs drop their local copy immediately too.
+// Admin-only, gated client-side behind the same password modal used for
+// Delete Firebase Records / Archive Season.
+async function firestoreDeleteAllDocs(collection) {
+  let deleted = 0;
+  let pageToken = null;
+  do {
+    const qs = 'pageSize=300' + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+    const res = await firestoreRequest('GET', `/${collection}?${qs}`);
+    if (!res.ok) break;
+    const data = await res.json();
+    const docs = data.documents || [];
+    await Promise.all(docs.map((d) => {
+      const docId = d.name.split('/').pop();
+      return firestoreRequest('DELETE', `/${collection}/${encodeURIComponent(docId)}`).catch(() => {});
+    }));
+    deleted += docs.length;
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+  return deleted;
+}
+
+app.post('/api/rounds/clear', async (req, res) => {
+  try {
+    const deleted = await firestoreDeleteAllDocs('roundHistory');
+    trackerCache.rounds = [];
+    trackerSeenKeys.rounds.clear();
+    broadcastTracker('roundsCleared', { clearedAt: Date.now() });
+    res.json({ ok: true, deleted });
+  } catch (e) {
+    console.warn('[tracker] roundHistory clear error:', e.message);
+    res.status(500).json({ error: 'Failed to clear round history.' });
+  }
+});
+
 // bleedEventLog writes stay client-side (they're one-off admin button clicks,
 // not auto-detected every poll, so they were never the source of duplicate
 // writes — only the listener reading them was expensive). This endpoint just
