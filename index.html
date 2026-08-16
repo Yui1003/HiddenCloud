@@ -5103,7 +5103,8 @@ function renderWeeklyGains() {
   const d = weeklyGainsData;
   const rangeEl = document.getElementById('wg-week-range');
   if (rangeEl) {
-    rangeEl.textContent = '\uD83D\uDCC5 ' + fmtWeekDate(d.weekStartLabel) + ' \u2013 ' + fmtWeekDate(d.weekEndLabel)
+    const weekLabel = d.weekIndex ? ('Week ' + d.weekIndex + (d.seasonId ? ' \u00B7 Season ' + d.seasonId : '') + ' \u2014 ') : '';
+    rangeEl.textContent = '\uD83D\uDCC5 ' + weekLabel + fmtWeekDate(d.weekStartLabel) + ' \u2013 ' + fmtWeekDate(d.weekEndLabel)
       + (d.seasonEnded ? ' \u00B7 Season ended, gains frozen' : '');
   }
 
@@ -5153,12 +5154,13 @@ function renderWeeklyGains() {
   if (!histListEl) return;
 
   if (weeklyHistoryData.length === 0) {
-    histListEl.innerHTML = '<div style="padding:12px 12px 8px;font-size:12px;color:var(--text3)">No past weeks archived yet. History appears after the first weekly reset (Monday 12am PH time).</div>';
+    histListEl.innerHTML = '<div style="padding:12px 12px 8px;font-size:12px;color:var(--text3)">No past weeks archived yet. History appears after the first weekly cut (7 days after the season\u2019s reset time, PH).</div>';
     return;
   }
 
   histListEl.innerHTML = weeklyHistoryData.map(function(w) {
-    const label   = fmtWeekDate(w.weekStartLabel) + ' \u2013 ' + fmtWeekDate(w.weekEndLabel);
+    const weekLabel = w.weekIndex ? ('Week ' + w.weekIndex + (w.seasonId ? ' \u00B7 S' + w.seasonId : '') + ' \u2014 ') : '';
+    const label   = weekLabel + fmtWeekDate(w.weekStartLabel) + ' \u2013 ' + fmtWeekDate(w.weekEndLabel);
     const isOpen  = weekHistoryOpenKey === w.weekKey;
     const members = w.members || [];
     const topGain = members[0] ? fmtNum(members[0].weekGain) : '\u2014';
