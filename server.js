@@ -256,6 +256,33 @@ async function firestoreRequest(method, urlPath, body) {
   });
 }
 
+// Fetches a specific, small set of documents by ID in one round trip — used
+// to cheaply re-check just the handful of docs that might still change
+// (e.g. still-pending pings), instead of re-querying an entire collection
+// range to catch updates to documents we already have.
+async function firestoreBatchGet(collection, docIds) {
+  const out = new Map();
+  if (!docIds.length) return out;
+  const token = await getFirebaseToken();
+  const names = docIds.map((id) =>
+    `projects/${FIREBASE_PROJECT}/databases/(default)/documents/${collection}/${id}`);
+  const res = await fetch(`${FIRESTORE_BASE}:batchGet`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documents: names }),
+  });
+  if (!res.ok) throw new Error(`Firestore batchGet HTTP ${res.status}`);
+  const rows = await res.json();
+  for (const r of rows) {
+    if (!r.found) continue; // doc no longer exists — leave it out, caller treats missing as "no change"
+    const docId = r.found.name.split('/').pop();
+    const entry = {};
+    for (const [k, v] of Object.entries(r.found.fields || {})) entry[k] = fsRestVal(v);
+    out.set(docId, entry);
+  }
+  return out;
+}
+
 // Load all subscriptions from Firestore. Returns array on success, null on error.
 async function loadSubscriptionsFromFirestore() {
   try {
@@ -925,8 +952,8 @@ function recordGainEvents(json) {
 // met the event's minimum reputation-gain eligibility bar.
 
 const EVENT_GAINS_FILE            = path.join(DATA_DIR, 'event-gains-state.json');
-const EVENT_GAINS_SYNC_INTERVAL_MS = POLL_INTERVAL_MS;      // throttle eventGains/{id} Firestore writes
-const EVENT_PING_TALLY_INTERVAL_MS = POLL_INTERVAL_MS;      // how often to re-tally bleedEventLog for Ping Events
+const EVENT_GAINS_SYNC_INTERVAL_MS = POLL_INTERVAL_MS;  // throttle eventGains/{id} Firestore writes — cheap (1 doc), safe to keep fast
+const EVENT_PING_TALLY_INTERVAL_MS = POLL_INTERVAL_MS;  // how often to re-tally bleedEventLog for Ping Events — now incremental (see eventPingCache below), so no separate cost-driven throttle needed
 const EVENTS_LIST_REFRESH_MS       = 30_000;      // how often to re-read the events collection
 const EVENT_GAINS_GRACE_MS         = 10 * 60_000; // keep tracking 10 min after an event ends
 
@@ -1039,9 +1066,30 @@ function roundStartMs(ts) {
   return d.getTime();
 }
 
+// Per-event incremental ping cache — this is what makes frequent tallying
+// cheap. Instead of re-reading every matched bleedEventLog doc on every
+// call, we remember what we've already fetched and only ever ask Firestore
+// for two small things: (a) docs newer than the cursor, and (b) the current
+// state of docs still inside their 30-min unmark window. Everything else
+// (counting, and pending→confirmed transitions as rounds close) is computed
+// from this in-memory cache with zero further reads.
+//   docs:       docId → { byId, ts (ms), falseAlarm, unmarked }
+//   cursorIso:  ISO ts of the newest doc already fetched — next query resumes here
+//   pendingIds: docIds still inside their unmark window — the only ones that
+//               can still change, so the only ones ever re-checked
+const eventPingCache = {};
+const EVENT_PING_RECONCILE_MS = 5 * 60_000; // occasional full re-read as a self-healing safety net
+const lastEventPingReconcile = {}; // eventId → ms
+
+function getPingCache(eventId, startIso) {
+  if (!eventPingCache[eventId]) {
+    eventPingCache[eventId] = { docs: new Map(), cursorIso: startIso, pendingIds: new Set() };
+  }
+  return eventPingCache[eventId];
+}
+
 // Tallies bleed pings ('marked' bleedEventLog entries with a byId) that fall
-// within [event.startTs, min(now, event.endTs)] for Ping Events. Throttled
-// per-event since it's an extra Firestore query.
+// within [event.startTs, min(now, event.endTs)] for Ping Events.
 //
 // A ping only becomes a *confirmed* point once the 30-min round it was made
 // in has fully ended — that's also the exact window during which it can
@@ -1050,7 +1098,10 @@ function roundStartMs(ts) {
 // counted, whether or not "false alarm" was checked — the checkbox only
 // labels *why* for the History tab. Entries flagged `falseAlarm: true` or
 // `unmarked: true` (see confirmUnmarkBleed in index.html) never count,
-// confirmed or pending.
+// confirmed or pending. Because unmarking is only possible during that same
+// window, a doc can be treated as permanently settled the moment its round
+// closes — that's what lets pendingIds stay small instead of growing
+// forever.
 async function tallyEventPings(ev) {
   const now  = Date.now();
   const last = lastEventPingTally[ev.id] || 0;
@@ -1058,40 +1109,89 @@ async function tallyEventPings(ev) {
   lastEventPingTally[ev.id] = now;
 
   const startIso = new Date(ev.startTs).toISOString();
-  const endIso   = new Date(Math.min(now, ev.endTs)).toISOString();
+  const endMs    = Math.min(now, ev.endTs);
+  const endIso   = new Date(endMs).toISOString();
 
-  let rows;
+  const cache = getPingCache(ev.id, startIso);
+
+  // Every so often, force a full re-read from the true start of the event —
+  // a cheap insurance policy against any doc this incremental path could
+  // have missed (a late-arriving write, a dropped response, etc.), same
+  // spirit as the confirmedBleeds fallback poll elsewhere in this file.
+  const dueForReconcile = now - (lastEventPingReconcile[ev.id] || 0) >= EVENT_PING_RECONCILE_MS;
+  const queryFromIso = dueForReconcile ? startIso : cache.cursorIso;
+
+  // 1) Fetch only docs at/after the cursor (normally just whatever's new
+  //    since the last poll — 0 or a handful of docs; a full range only on
+  //    the very first call for this event, or a periodic reconcile).
   try {
-    rows = await firestoreRunQuery({
+    const rows = await firestoreRunQuery({
       from: [{ collectionId: 'bleedEventLog' }],
       where: {
         compositeFilter: {
           op: 'AND',
           filters: [
             { fieldFilter: { field: { fieldPath: 'action' }, op: 'EQUAL', value: { stringValue: 'marked' } } },
-            { fieldFilter: { field: { fieldPath: 'ts' }, op: 'GREATER_THAN_OR_EQUAL', value: { stringValue: startIso } } },
+            { fieldFilter: { field: { fieldPath: 'ts' }, op: 'GREATER_THAN_OR_EQUAL', value: { stringValue: queryFromIso } } },
             { fieldFilter: { field: { fieldPath: 'ts' }, op: 'LESS_THAN_OR_EQUAL', value: { stringValue: endIso } } },
           ],
         },
       },
+      orderBy: [{ field: { fieldPath: 'ts' }, direction: 'ASCENDING' }],
       limit: 1000,
     });
+    for (const row of rows) {
+      if (!row.byId) continue; // log entries written before the Ping Event feature have no linked member id
+      const tsMs = new Date(row.ts).getTime();
+      cache.docs.set(row.id, { byId: row.byId, ts: tsMs, falseAlarm: !!row.falseAlarm, unmarked: !!row.unmarked });
+      if (tsMs + ROUND_LENGTH_MS > now && !row.falseAlarm && !row.unmarked) cache.pendingIds.add(row.id);
+      if (row.ts > cache.cursorIso) cache.cursorIso = row.ts;
+    }
+    if (dueForReconcile) lastEventPingReconcile[ev.id] = now;
   } catch (e) {
     console.warn(`[events] ping tally query failed for ${ev.id}:`, e.message);
-    return;
+    // Keep going with whatever's already cached — a transient failure here
+    // just delays new pings by one poll cycle instead of losing anything.
   }
 
+  // 2) Re-check only docs still inside their unmark window — bounded to
+  //    roughly one round's worth of pings, never the event's whole history.
+  //    This is what catches an unmark/false-alarm flag landing on a doc we
+  //    already fetched (that PATCH doesn't change `ts`, so step 1 above
+  //    would never see it).
+  if (cache.pendingIds.size > 0) {
+    const stillPending = [...cache.pendingIds];
+    try {
+      const fresh = await firestoreBatchGet('bleedEventLog', stillPending);
+      for (const docId of stillPending) {
+        const cached = cache.docs.get(docId);
+        const latest = fresh.get(docId);
+        if (latest && cached) {
+          cached.falseAlarm = !!latest.falseAlarm;
+          cached.unmarked   = !!latest.unmarked;
+        }
+        const roundClosed = cached && (cached.ts + ROUND_LENGTH_MS <= now);
+        if (roundClosed || (cached && (cached.falseAlarm || cached.unmarked))) {
+          cache.pendingIds.delete(docId); // settled for good — never re-read again
+        }
+      }
+    } catch (e) {
+      console.warn(`[events] ping tally pending re-check failed for ${ev.id}:`, e.message);
+    }
+  }
+
+  // 3) Recompute counts entirely from the in-memory cache — pure JS, no
+  //    Firestore reads. This is also what makes a pending ping's round
+  //    closing show up as confirmed instantly, with no read at all.
   const confirmedCounts = {};
   const pendingCounts   = {};
-  for (const row of rows) {
-    if (!row.byId) continue;                 // log entries written before the Ping Event feature have no linked member id
-    if (row.falseAlarm || row.unmarked) continue; // cleared before its round closed — never counts, pending or confirmed
-
-    const roundEnd = roundStartMs(row.ts) + ROUND_LENGTH_MS;
+  for (const doc of cache.docs.values()) {
+    if (doc.falseAlarm || doc.unmarked) continue; // cleared before its round closed — never counts, pending or confirmed
+    const roundEnd = roundStartMs(doc.ts) + ROUND_LENGTH_MS;
     if (now >= roundEnd) {
-      confirmedCounts[row.byId] = (confirmedCounts[row.byId] || 0) + 1;
+      confirmedCounts[doc.byId] = (confirmedCounts[doc.byId] || 0) + 1;
     } else {
-      pendingCounts[row.byId] = (pendingCounts[row.byId] || 0) + 1;
+      pendingCounts[doc.byId] = (pendingCounts[doc.byId] || 0) + 1;
     }
   }
 
@@ -1166,6 +1266,9 @@ function updateEventGains(json) {
   const liveIds = new Set(cachedEvents.map((e) => e.id));
   for (const id of Object.keys(eventGainsState)) {
     if (!liveIds.has(id)) delete eventGainsState[id];
+  }
+  for (const id of Object.keys(eventPingCache)) {
+    if (!liveIds.has(id)) { delete eventPingCache[id]; delete lastEventPingReconcile[id]; }
   }
 }
 
