@@ -930,7 +930,22 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
               <div class="settings-row-label">Bleed Ping Webhook URL</div>
               <div class="settings-row-sub">Paste your #bleed-clan Discord webhook URL. When any user marks a clan as bleeding, a message is auto-posted to that channel.</div>
             </div>
-            <input class="settings-input" id="discord-webhook-input" type="url" placeholder="https://discord.com/api/webhooks/..." style="width:100%;max-width:100%;box-sizing:border-box" onblur="saveDiscordWebhook()" onkeydown="if(event.key==='Enter')saveDiscordWebhook()" />
+
+            <!-- Read-only display of the currently saved webhook -->
+            <div id="discord-webhook-current" style="width:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div style="flex:1;min-width:0;font-size:12px;font-family:monospace;color:var(--text2);background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="discord-webhook-current-value">Loading&#8230;</div>
+              <button onclick="showDiscordWebhookEditor()" style="white-space:nowrap;background:rgba(255,255,255,0.06);color:var(--text2);border:1px solid rgba(255,255,255,0.12);padding:8px 14px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer">&#9998; Change</button>
+            </div>
+
+            <!-- Editor, hidden until "Change" is tapped -->
+            <div id="discord-webhook-editor" style="width:100%;display:none;flex-direction:column;gap:8px">
+              <input class="settings-input" id="discord-webhook-input" type="url" placeholder="https://discord.com/api/webhooks/..." style="width:100%;max-width:100%;box-sizing:border-box" onkeydown="if(event.key==='Enter')saveDiscordWebhook();if(event.key==='Escape')hideDiscordWebhookEditor()" />
+              <div style="display:flex;gap:8px">
+                <button class="btn-primary" style="width:auto;flex:1" onclick="saveDiscordWebhook()">Save</button>
+                <button style="width:auto;flex:1;background:rgba(255,255,255,0.06);color:var(--text2);border:1px solid rgba(255,255,255,0.12);padding:8px 16px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer" onclick="hideDiscordWebhookEditor()">Cancel</button>
+              </div>
+            </div>
+
             <div id="discord-webhook-status" style="font-size:11px;color:var(--text3)"></div>
           </div>
         </div>
@@ -1313,9 +1328,11 @@ function dedupeBleedEventLog(arr) {
 let _pendingUnmarkClanId = null;
 // clanId pending mark confirmation (set by showMarkBleedModal)
 let _pendingMarkClanId = null;
-// Discord webhook URL (admin-set, persisted in Firebase config)
-// Persisted in localStorage so it survives page reloads without a Firestore read.
-let discordWebhookUrl = localStorage.getItem('hc_discord_webhook') || '';
+// Discord webhook URL (admin-set, stored in Firestore only — no client-side
+// cache, so there's never a stale/conflicting local copy; always fetched
+// fresh, see the one-time listener + fetchDiscordWebhookUrl below).
+let discordWebhookUrl = '';
+let discordWebhookLoaded = false; // true once we've read it at least once this session
 let confirmedBleedsLoaded = false;
 const confirmedBleedNotificationKeys = new Set();
 let possibleBleedSince = null;
@@ -3608,6 +3625,7 @@ function showTab(tab) {
   // Lazy-load Firestore data for tabs that don't use persistent listeners
   if (tab === 'weekly') { fetchWeeklyGains(); if (db) loadWeeklyHistoryOnce(); }
   if (tab === 'events' && db) loadEventsFromFirestore();
+  if (tab === 'settings' && db && accessLevel === 'admin') fetchDiscordWebhookUrl();
 
   renderCurrentView();
 }
@@ -3864,6 +3882,54 @@ async function sendDiscordBleedPing(clan, action) {
   }
 }
 
+// Always reads Firestore directly (no client cache) so what's shown here can
+// never disagree with what the server will actually use for the next ping.
+function fetchDiscordWebhookUrl() {
+  if (!db) return;
+  db.collection('config').doc('discordWebhook').get()
+    .then(snap => {
+      discordWebhookUrl = (snap.exists && snap.data().url) || '';
+      discordWebhookLoaded = true;
+      renderDiscordWebhookCurrent();
+    })
+    .catch(err => console.warn('Firestore discordWebhook error', err));
+}
+
+function renderDiscordWebhookCurrent() {
+  const el = document.getElementById('discord-webhook-current-value');
+  if (!el) return;
+  if (!discordWebhookLoaded) {
+    el.textContent = 'Loading\u2026';
+    el.style.color = 'var(--text3)';
+  } else if (discordWebhookUrl) {
+    el.textContent = discordWebhookUrl;
+    el.style.color = 'var(--text2)';
+  } else {
+    el.textContent = 'No webhook set';
+    el.style.color = 'var(--text3)';
+  }
+}
+
+function showDiscordWebhookEditor() {
+  const cur = document.getElementById('discord-webhook-current');
+  const ed  = document.getElementById('discord-webhook-editor');
+  const inp = document.getElementById('discord-webhook-input');
+  const statusEl = document.getElementById('discord-webhook-status');
+  if (cur) cur.style.display = 'none';
+  if (ed)  ed.style.display  = 'flex';
+  if (inp) { inp.value = discordWebhookUrl || ''; inp.focus(); inp.select(); }
+  if (statusEl) statusEl.textContent = '';
+}
+
+function hideDiscordWebhookEditor() {
+  const cur = document.getElementById('discord-webhook-current');
+  const ed  = document.getElementById('discord-webhook-editor');
+  const statusEl = document.getElementById('discord-webhook-status');
+  if (cur) cur.style.display = 'flex';
+  if (ed)  ed.style.display  = 'none';
+  if (statusEl) statusEl.textContent = '';
+}
+
 function saveDiscordWebhook() {
   if (!db || accessLevel !== 'admin') return;
   const inp = document.getElementById('discord-webhook-input');
@@ -3873,8 +3939,13 @@ function saveDiscordWebhook() {
   db.collection('config').doc('discordWebhook').set({ url })
     .then(() => {
       discordWebhookUrl = url;
-      if (statusEl) statusEl.textContent = url ? '\u2713 Webhook URL saved.' : 'Webhook URL cleared.';
-      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+      discordWebhookLoaded = true;
+      hideDiscordWebhookEditor();
+      renderDiscordWebhookCurrent();
+      // The server has no cache to invalidate — it reads Firestore fresh on
+      // every ping — so this takes effect on the very next bleed mark.
+      if (statusEl) statusEl.textContent = url ? '\u2713 Saved \u2014 takes effect on the next ping.' : 'Webhook cleared \u2014 pings are now off.';
+      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 4000);
     })
     .catch(e => {
       console.warn('Discord webhook save error', e);
@@ -4545,8 +4616,8 @@ function setAccessLevel(level) {
   if (discordSection) {
     discordSection.style.display = isAdmin ? '' : 'none';
     if (isAdmin) {
-      const inp = document.getElementById('discord-webhook-input');
-      if (inp && discordWebhookUrl) inp.value = discordWebhookUrl;
+      hideDiscordWebhookEditor(); // always start on the read-only display, not a stale editor
+      fetchDiscordWebhookUrl();   // always re-read from Firestore, never trust a leftover value
     }
   }
   // Refresh download button visibility based on whether an archive exists
@@ -4908,19 +4979,10 @@ async function initFirestoreListeners() {
     es.onerror = function() { console.warn('bleed-stream disconnected — will auto-reconnect'); };
   })();
 
-  // ── Discord webhook URL: one-time read per session (only changes on admin action)
-  if (!hasFreshCache) {
-    db.collection('config').doc('discordWebhook')
-      .get()
-      .then(snap => {
-        if (snap.exists) {
-          discordWebhookUrl = snap.data().url || '';
-          const inp = document.getElementById('discord-webhook-input');
-          if (inp && accessLevel === 'admin') inp.value = discordWebhookUrl;
-        }
-      })
-      .catch(err => console.warn('Firestore discordWebhook error', err));
-  }
+  // ── Discord webhook URL: read once per fresh load (also re-read whenever
+  // admin mode is entered or the Settings tab is opened — see setAccessLevel
+  // and showTab — so the display is never left showing a stale value).
+  if (!hasFreshCache) fetchDiscordWebhookUrl();
 }
 
 // ── Notify server of bleed state changes so SSE clients get instant updates ───
@@ -5911,6 +5973,8 @@ window.showMarkBleedModal           = showMarkBleedModal;
 window.closeMarkBleedModal          = closeMarkBleedModal;
 window.confirmMarkBleed             = confirmMarkBleed;
 window.saveDiscordWebhook           = saveDiscordWebhook;
+window.showDiscordWebhookEditor     = showDiscordWebhookEditor;
+window.hideDiscordWebhookEditor     = hideDiscordWebhookEditor;
 window.showArchiveSeasonModal       = showArchiveSeasonModal;
 window.downloadSeasonReport         = downloadSeasonReport;
 
