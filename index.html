@@ -5102,7 +5102,10 @@ function renderWeeklyGains() {
 
   const d = weeklyGainsData;
   const rangeEl = document.getElementById('wg-week-range');
-  if (rangeEl) rangeEl.textContent = '\uD83D\uDCC5 ' + fmtWeekDate(d.weekStartLabel) + ' \u2013 ' + fmtWeekDate(d.weekEndLabel);
+  if (rangeEl) {
+    rangeEl.textContent = '\uD83D\uDCC5 ' + fmtWeekDate(d.weekStartLabel) + ' \u2013 ' + fmtWeekDate(d.weekEndLabel)
+      + (d.seasonEnded ? ' \u00B7 Season ended, gains frozen' : '');
+  }
 
   const liveEl = document.getElementById('wg-live-label');
   const dotEl  = document.getElementById('wg-live-dot');
