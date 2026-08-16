@@ -506,6 +506,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .ev-status-live{background:rgba(74,222,128,0.18);color:var(--green);border:1px solid rgba(74,222,128,0.5);animation:pulse 2s infinite}
 .ev-status-upcoming{background:rgba(251,191,36,0.15);color:var(--amber);border:1px solid rgba(251,191,36,0.4)}
 .ev-status-ended{background:rgba(88,88,88,0.18);color:var(--text3);border:1px solid rgba(88,88,88,0.3)}
+.ev-status-ping{background:rgba(240,165,0,0.16);color:var(--mauve);border:1px solid rgba(240,165,0,0.45)}
+.ev-lp-pings{font-size:12px;font-weight:700;color:var(--blue);font-variant-numeric:tabular-nums;white-space:nowrap;width:44px;text-align:right}
+.ev-lp-elig{font-size:9px;font-weight:700;padding:2px 6px;border-radius:6px;letter-spacing:0.3px;white-space:nowrap;margin-left:6px}
+.ev-lp-elig.yes{background:rgba(74,222,128,0.16);color:var(--green);border:1px solid rgba(74,222,128,0.4)}
+.ev-lp-elig.no{background:rgba(88,88,88,0.18);color:var(--text3);border:1px solid rgba(88,88,88,0.3)}
 .ev-detail-body{border-top:1px solid var(--border);padding:12px}
 .ev-detail-desc{font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:10px;white-space:pre-wrap}
 .ev-detail-row{display:flex;flex-direction:column;gap:2px;margin-bottom:8px}
@@ -563,6 +568,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .ev-form-input:focus{border-color:var(--mauve)}
 .ev-form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
 .ev-form-error{font-size:12px;color:var(--red);min-height:16px;margin-bottom:6px}
+.ev-form-toggle-row{display:flex;align-items:flex-start;gap:10px;background:var(--bg3);border:1.5px solid var(--border2);border-radius:10px;padding:10px 12px;margin-bottom:12px;cursor:pointer}
+.ev-form-toggle-row input[type="checkbox"]{width:17px;height:17px;margin-top:1px;accent-color:var(--mauve);flex-shrink:0;cursor:pointer}
+.ev-form-toggle-text{display:flex;flex-direction:column;gap:2px}
+.ev-form-toggle-title{font-size:12.5px;font-weight:700;color:var(--text)}
+.ev-form-toggle-sub{font-size:11px;color:var(--text3);line-height:1.4}
 /* ADMIN BADGE */
 #header-admin-badge{display:none;align-items:center;gap:4px;background:rgba(240,165,0,0.18);border:1px solid rgba(240,165,0,0.5);border-radius:8px;padding:3px 7px;font-size:10px;font-weight:700;color:var(--mauve);white-space:nowrap;flex-shrink:0}
 </style>
@@ -1086,6 +1096,18 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
     <div class="ev-form-field">
       <label class="ev-form-label" for="ev-f-condition">Condition</label>
       <textarea class="ev-form-input" id="ev-f-condition" rows="2" placeholder="e.g. Must gain at least 1,000 reputation to be eligible."></textarea>
+    </div>
+    <label class="ev-form-toggle-row" for="ev-f-track-pings">
+      <input type="checkbox" id="ev-f-track-pings" onchange="onTrackPingsToggle()" />
+      <div class="ev-form-toggle-text">
+        <div class="ev-form-toggle-title">🏓 Ping Event — track bleed pingers</div>
+        <div class="ev-form-toggle-sub">Ranks members by how many bleeds they pinged (marked) during this event, alongside their reputation gained.</div>
+      </div>
+    </label>
+    <div class="ev-form-field" id="ev-f-min-rep-wrap" style="display:none">
+      <label class="ev-form-label" for="ev-f-min-rep">Minimum Reputation Gain to be Eligible (optional)</label>
+      <input class="ev-form-input" id="ev-f-min-rep" type="number" min="0" step="1" placeholder="e.g. 15000" />
+      <div style="font-size:10.5px;color:var(--text3);line-height:1.4">Measured as total reputation gained this season (not just during the event window).</div>
     </div>
     <div class="ev-form-error" id="ev-form-error"></div>
     <div class="modal-actions">
@@ -3643,7 +3665,7 @@ async function markClanBleed(clanId) {
   syncBleedsToServer({ [clanId]: entry }); // notify server → immediate SSE broadcast
 
   // Write audit log entry
-  const logEntry = { clanId, clanName: clan.name, action: 'marked', by: loggedInUserName, ts };
+  const logEntry = { clanId, clanName: clan.name, action: 'marked', by: loggedInUserName, byId: loggedInUserId, ts };
   await db.collection('bleedEventLog').add(logEntry)
     .catch(e => console.warn('bleedEventLog write error', e));
   bumpLastWrite();
@@ -3697,7 +3719,7 @@ async function confirmUnmarkBleed() {
 
   // Write audit log entry
   const ts = new Date().toISOString();
-  const logEntry = { clanId, clanName, action: 'cleared', by: loggedInUserName, ts };
+  const logEntry = { clanId, clanName, action: 'cleared', by: loggedInUserName, byId: loggedInUserId, ts };
   await db.collection('bleedEventLog').add(logEntry)
     .catch(e => console.warn('bleedEventLog write error', e));
   bumpLastWrite();
@@ -5281,9 +5303,10 @@ function renderEventCard(ev) {
   const isLive = evLiveId === ev.id;
   const dateStr = fmtEvDateTime(ev.startTs) + ' \u2192 ' + fmtEvDateTime(ev.endTs);
 
-  const statusHtml = status === 'active'
+  const statusHtml = (status === 'active'
     ? '<span class="ev-status-badge ev-status-live">\uD83D\uDFE2 LIVE</span>'
-    : '<span class="ev-status-badge ev-status-upcoming">\uD83D\uDFE1 UPCOMING</span>';
+    : '<span class="ev-status-badge ev-status-upcoming">\uD83D\uDFE1 UPCOMING</span>')
+    + (ev.trackPings ? ' <span class="ev-status-badge ev-status-ping">\uD83C\uDFD3 PING EVENT</span>' : '');
 
   let detailHtml = '';
   if (isOpen) {
@@ -5308,6 +5331,10 @@ function renderEventCard(ev) {
       ${ev.condition ? `<div class="ev-detail-row">
         <span class="ev-detail-label">\uD83D\uDCCC Condition</span>
         <span class="ev-detail-val">${esc(ev.condition)}</span>
+      </div>` : ''}
+      ${(ev.trackPings && ev.minRepGain) ? `<div class="ev-detail-row">
+        <span class="ev-detail-label">\uD83C\uDFAF Eligibility</span>
+        <span class="ev-detail-val">Gain at least ${fmtNum(ev.minRepGain)} reputation this season</span>
       </div>` : ''}
       <div class="ev-detail-actions">${liveBtn}${adminBtns}</div>
       <div id="ev-lp-${ev.id}"></div>
@@ -5354,6 +5381,10 @@ function renderPastEventCard(ev) {
         <span class="ev-detail-label">\uD83D\uDCCC Condition</span>
         <span class="ev-detail-val" style="font-size:11px">${esc(ev.condition)}</span>
       </div>` : ''}
+      ${(ev.trackPings && ev.minRepGain) ? `<div class="ev-detail-row" style="margin-bottom:8px">
+        <span class="ev-detail-label">\uD83C\uDFAF Eligibility</span>
+        <span class="ev-detail-val" style="font-size:11px">Gain at least ${fmtNum(ev.minRepGain)} reputation this season</span>
+      </div>` : ''}
       <div class="ev-detail-actions">${resultsBtn}${dlBtn}${adminBtns}</div>
       <div id="ev-lp-${ev.id}"></div>
     </div>`;
@@ -5366,6 +5397,7 @@ function renderPastEventCard(ev) {
         <div style="font-size:11px;color:var(--text3);margin-top:2px;font-variant-numeric:tabular-nums">${esc(dateStr)}</div>
       </div>
       <div class="ev-hist-card-meta">
+        ${ev.trackPings ? '<span class="ev-status-badge ev-status-ping">\uD83C\uDFD3 PING</span>' : ''}
         <span class="ev-status-badge ev-status-ended">ENDED</span>
         <span class="ev-hist-card-chevron${isOpen ? ' open' : ''}">&#9660;</span>
       </div>
@@ -5393,15 +5425,25 @@ function renderLiveProgress(eventId) {
   const lastUpd = gains.lastUpdated ? Math.floor((Date.now() - gains.lastUpdated) / 1000) : null;
   const updStr  = lastUpd !== null ? (lastUpd < 60 ? lastUpd + 's ago' : Math.floor(lastUpd/60) + 'm ago') : '\u2014';
 
+  const isPingEvent = !!ev.trackPings;
+  const minRepGain  = ev.minRepGain || 0;
+
   const sorted = Object.entries(gains.members)
-    .map(([id, m]) => ({ id, ...m }))
-    .sort((a, b) => b.eventGain - a.eventGain);
+    .map(([id, m]) => ({ id, pings: 0, ...m }))
+    .sort((a, b) => isPingEvent
+      ? (b.pings - a.pings) || (b.eventGain - a.eventGain)
+      : (b.eventGain - a.eventGain));
 
   // ── Find current user in the leaderboard ─────────────────────────────────
   const myIdx = loggedInUserId
     ? sorted.findIndex(m => String(m.id) === loggedInUserId)
     : -1;
   const myEntry = myIdx >= 0 ? sorted[myIdx] : null;
+
+  const eligible = (m) => !isPingEvent || minRepGain <= 0 || (m.eventGain || 0) >= minRepGain;
+  const eligBadge = (m) => (isPingEvent && minRepGain > 0)
+    ? `<span class="ev-lp-elig ${eligible(m) ? 'yes' : 'no'}">${eligible(m) ? '\u2713 Eligible' : 'Not yet'}</span>`
+    : '';
 
   // ── Pinned "Your Score" hero card ─────────────────────────────────────────
   let myCardHtml = '';
@@ -5411,12 +5453,15 @@ function renderLiveProgress(eventId) {
     const myGainCls = myEntry.eventGain > 0 ? 'ev-lp-gain' : 'ev-lp-gain zero';
     const medalEmoji = myRank === 1 ? '\uD83E\uDD47' : myRank === 2 ? '\uD83E\uDD48' : myRank === 3 ? '\uD83E\uDD49' : null;
     const rankLabel = medalEmoji ? `${medalEmoji} #${myRank}` : `#${myRank}`;
+    const myPingsHtml = isPingEvent
+      ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">\uD83C\uDFD3 ${myEntry.pings} ping${myEntry.pings !== 1 ? 's' : ''} \u00B7 ${myGain} rep this season ${eligBadge(myEntry)}</div>`
+      : '';
     myCardHtml = `<div class="ev-my-score-card">
       <div class="ev-my-score-label">Your Score</div>
       <div class="ev-my-score-body">
         <div class="ev-my-rank">${rankLabel}</div>
-        <div class="ev-my-name">${esc(myEntry.name)}</div>
-        <div class="${myGainCls}" style="font-size:18px;font-weight:800;min-width:70px;text-align:right">${myGain}</div>
+        <div class="ev-my-name">${esc(myEntry.name)}${myPingsHtml}</div>
+        <div class="${myGainCls}" style="font-size:18px;font-weight:800;min-width:70px;text-align:right">${isPingEvent ? myEntry.pings : myGain}</div>
       </div>
     </div>`;
   }
@@ -5432,12 +5477,17 @@ function renderLiveProgress(eventId) {
     const gCls = m.eventGain > 0 ? 'ev-lp-gain' : 'ev-lp-gain zero';
     const gStr = m.eventGain > 0 ? '+' + fmtNum(m.eventGain) : '0';
     const youTag = isMe ? ' <span class="ev-you-tag">you</span>' : '';
+    if (isPingEvent) {
+      return `<div class="${rowCls}"><div class="${rCls}">#${rank}</div>` +
+        `<div class="ev-lp-name">${esc(m.name)}${youTag}<div style="font-size:10.5px;color:var(--text3);margin-top:1px;white-space:normal">${gStr} rep this season${eligBadge(m)}</div></div>` +
+        `<div class="ev-lp-pings">${m.pings || 0}</div></div>`;
+    }
     return `<div class="${rowCls}"><div class="${rCls}">#${rank}</div><div class="ev-lp-name">${esc(m.name)}${youTag}</div><div class="${gCls}">${gStr}</div></div>`;
   }).join('');
 
   const titleHtml = isActive
-    ? `<span class="live-dot" style="margin-right:6px"></span><span>Live Progress</span>`
-    : `<span>\uD83D\uDCCB Final Results</span>`;
+    ? `<span class="live-dot" style="margin-right:6px"></span><span>${isPingEvent ? 'Leading Pinger' : 'Live Progress'}</span>`
+    : `<span>\uD83D\uDCCB ${isPingEvent ? 'Final Ping Standings' : 'Final Results'}</span>`;
 
   return `<div class="ev-lp-container">
     <div class="ev-lp-header"><span style="display:flex;align-items:center">${titleHtml}</span><span style="font-size:10px;color:var(--text3)">Updated ${updStr}</span></div>
@@ -5480,6 +5530,12 @@ function toggleLiveProgress(eventId) {
 }
 
 // ── Admin: Create / Edit ──────────────────────────────────────────────────────
+function onTrackPingsToggle() {
+  const on = document.getElementById('ev-f-track-pings').checked;
+  const wrap = document.getElementById('ev-f-min-rep-wrap');
+  if (wrap) wrap.style.display = on ? '' : 'none';
+}
+
 function openCreateEventForm() {
   if (accessLevel !== 'admin') return;
   evEditingId = null;
@@ -5489,6 +5545,9 @@ function openCreateEventForm() {
   document.getElementById('ev-f-start').value     = '';
   document.getElementById('ev-f-end').value       = '';
   document.getElementById('ev-f-condition').value = '';
+  document.getElementById('ev-f-track-pings').checked = false;
+  document.getElementById('ev-f-min-rep').value   = '';
+  onTrackPingsToggle();
   document.getElementById('ev-form-error').textContent = '';
   const saveBtn = document.getElementById('ev-form-save-btn');
   if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Event'; }
@@ -5507,6 +5566,9 @@ function editEvent(eventId) {
   document.getElementById('ev-f-start').value     = msToDatetimeLocal(ev.startTs);
   document.getElementById('ev-f-end').value       = msToDatetimeLocal(ev.endTs);
   document.getElementById('ev-f-condition').value = ev.condition || '';
+  document.getElementById('ev-f-track-pings').checked = !!ev.trackPings;
+  document.getElementById('ev-f-min-rep').value   = (ev.minRepGain != null) ? ev.minRepGain : '';
+  onTrackPingsToggle();
   document.getElementById('ev-form-error').textContent = '';
   const saveBtn = document.getElementById('ev-form-save-btn');
   if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Event'; }
@@ -5525,7 +5587,10 @@ async function submitEventForm() {
   const desc      = document.getElementById('ev-f-desc').value.trim();
   const startVal  = document.getElementById('ev-f-start').value;
   const endVal    = document.getElementById('ev-f-end').value;
-  const condition = document.getElementById('ev-f-condition').value.trim();
+  const condition   = document.getElementById('ev-f-condition').value.trim();
+  const trackPings  = document.getElementById('ev-f-track-pings').checked;
+  const minRepRaw   = document.getElementById('ev-f-min-rep').value;
+  const minRepGain  = (trackPings && minRepRaw !== '') ? Number(minRepRaw) : null;
   const errEl     = document.getElementById('ev-form-error');
   const saveBtn   = document.getElementById('ev-form-save-btn');
 
@@ -5537,12 +5602,15 @@ async function submitEventForm() {
   const endTs   = new Date(endVal).getTime();
   if (isNaN(startTs) || isNaN(endTs)) { errEl.textContent = 'Invalid date/time values.'; return; }
   if (endTs <= startTs)               { errEl.textContent = 'End time must be after start time.'; return; }
+  if (minRepGain !== null && (isNaN(minRepGain) || minRepGain < 0)) {
+    errEl.textContent = 'Minimum reputation gain must be a positive number.'; return;
+  }
 
   errEl.textContent = '';
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
 
   const now  = Date.now();
-  const data = { title, description: desc, startTs, endTs, condition, updatedAt: now };
+  const data = { title, description: desc, startTs, endTs, condition, trackPings, minRepGain, updatedAt: now };
 
   try {
     if (evEditingId) {
@@ -5599,8 +5667,13 @@ async function downloadEventXlsx(eventId) {
     } catch(e) { console.warn('Event gains fetch error', e); }
   }
 
+  const isPingEvent = !!ev.trackPings;
+  const minRepGain  = ev.minRepGain || 0;
+
   const members = gains && gains.members
-    ? Object.entries(gains.members).map(([id, m]) => ({ id, ...m })).sort((a, b) => b.eventGain - a.eventGain)
+    ? Object.entries(gains.members).map(([id, m]) => ({ id, pings: 0, ...m })).sort((a, b) => isPingEvent
+        ? (b.pings - a.pings) || (b.eventGain - a.eventGain)
+        : (b.eventGain - a.eventGain))
     : [];
 
   const now = new Date();
@@ -5609,19 +5682,34 @@ async function downloadEventXlsx(eventId) {
   const generatedAt = now.toLocaleDateString([], { weekday:'long', year:'numeric', month:'long', day:'numeric' }) +
                       ' \u00B7 ' + now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 
+  const colCount = isPingEvent ? 6 : 5;
+  const pad = (arr) => { while (arr.length < colCount) arr.push(''); return arr; };
+
   const rows = [];
-  rows.push(['Hidden Cloud Village \u2014 Event Results', '', '', '', '']);
-  rows.push(['Event: ' + ev.title, '', '', '', '']);
-  rows.push(['Period: ' + fmtEvDateTime(ev.startTs) + ' \u2192 ' + fmtEvDateTime(ev.endTs), '', '', '', '']);
-  rows.push(['Condition: ' + (ev.condition || '\u2014'), '', '', '', '']);
-  rows.push(['Generated: ' + generatedAt, '', '', '', '']);
+  rows.push(pad(['Hidden Cloud Village \u2014 ' + (isPingEvent ? 'Ping Event Results' : 'Event Results')]));
+  rows.push(pad(['Event: ' + ev.title]));
+  rows.push(pad(['Period: ' + fmtEvDateTime(ev.startTs) + ' \u2192 ' + fmtEvDateTime(ev.endTs)]));
+  rows.push(pad(['Condition: ' + (ev.condition || '\u2014')]));
+  if (isPingEvent && minRepGain > 0) rows.push(pad(['Eligibility: at least ' + minRepGain + ' reputation gained this season']));
+  rows.push(pad(['Generated: ' + generatedAt]));
   rows.push([]);
-  rows.push(['Rank', 'Member Name', 'Rep Gained', 'Start Rep', 'End Rep']);
-  members.forEach((m, i) => rows.push([i + 1, m.name, m.eventGain || 0, m.startRep || 0, m.currentRep || 0]));
+  rows.push(isPingEvent
+    ? ['Rank', 'Member Name', 'Pings', 'Season Rep Gained', 'Eligible', 'Season Rep (Start \u2192 Now)']
+    : ['Rank', 'Member Name', 'Rep Gained', 'Start Rep', 'End Rep']);
+  members.forEach((m, i) => {
+    if (isPingEvent) {
+      const isEligible = minRepGain <= 0 || (m.eventGain || 0) >= minRepGain;
+      rows.push([i + 1, m.name, m.pings || 0, m.eventGain || 0, isEligible ? 'Yes' : 'No', (m.startRep || 0) + ' \u2192 ' + (m.currentRep || 0)]);
+    } else {
+      rows.push([i + 1, m.name, m.eventGain || 0, m.startRep || 0, m.currentRep || 0]);
+    }
+  });
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 6 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+  ws['!cols'] = isPingEvent
+    ? [{ wch: 6 }, { wch: 26 }, { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 20 }]
+    : [{ wch: 6 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws, 'Event Results');
   const safeName = ev.title.replace(/[^a-z0-9]/gi, '_').toLowerCase().slice(0, 30);
   XLSX.writeFile(wb, 'event_' + safeName + '_' + stamp + '.xlsx');
