@@ -3675,6 +3675,11 @@ async function confirmMarkBleed() {
 
 async function markClanBleed(clanId) {
   if (!db || !loggedInUserName) return;
+  // Guard against a double-tap / rapid retry creating two "marked" log
+  // entries for the same clan — confirmedBleeds only stores the latest
+  // markLogId, so an earlier duplicate would never receive the "unmarked"
+  // flag on unmark and would silently count as a real ping forever.
+  if (confirmedBleeds[clanId] && confirmedBleeds[clanId].active) return;
   const clan = getClanById(clanId);
   if (!clan) return;
 
@@ -4498,6 +4503,14 @@ function showAdminAccessModal() {
 function setAccessLevel(level) {
   accessLevel = level;
   const isAdmin = level === 'admin';
+
+  // Persisted in sessionStorage (not localStorage) so admin mode survives a
+  // page reload but is cleared the moment the tab/browser is actually closed —
+  // re-entering the password is still required for a fresh session.
+  try {
+    if (isAdmin) sessionStorage.setItem('hcld_admin', '1');
+    else sessionStorage.removeItem('hcld_admin');
+  } catch(_) {}
 
   // Tab bar: show/hide Deductions and Suspects
   document.getElementById('tab-deductions').style.display = isAdmin ? '' : 'none';
@@ -5704,6 +5717,7 @@ async function submitEventForm() {
       await db.collection('events').add(data);
     }
     closeEventForm();
+    loadEventsFromFirestore(true); // force refresh so the change shows up immediately, no reload needed
   } catch(e) {
     errEl.textContent = 'Save failed: ' + (e.message || 'unknown error');
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Event'; }
@@ -5728,6 +5742,7 @@ function confirmDeleteEvent(eventId) {
       if (evOpenId    === eventId) evOpenId    = null;
       if (evHistOpenId === eventId) evHistOpenId = null;
       if (evLiveId    === eventId) evLiveId    = null;
+      loadEventsFromFirestore(true); // force refresh so the change shows up immediately, no reload needed
     } catch(e) { console.warn('Delete event error', e); }
   };
   document.getElementById('modal-overlay').classList.add('visible');
@@ -5827,7 +5842,13 @@ window._hcldInitTracker = function(userId, userName) {
   startLivePolling();
   initFirebase();
   syncPushSubscription().catch(e => console.error('Push subscription sync error:', e));
-  setAccessLevel('normal');
+
+  // Restore admin mode on reload only — sessionStorage is cleared when the
+  // tab/browser is closed, so a genuinely new session always starts 'normal'
+  // and still requires the password.
+  let resumedLevel = 'normal';
+  try { resumedLevel = sessionStorage.getItem('hcld_admin') === '1' ? 'admin' : 'normal'; } catch(_) {}
+  setAccessLevel(resumedLevel);
 };
 
 // \u2500\u2500 Expose only what HTML onclick/oninput handlers need \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
