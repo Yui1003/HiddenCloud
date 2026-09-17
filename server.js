@@ -1970,6 +1970,63 @@ app.get('/api/weekly-gains', (_req, res) => {
   });
 });
 
+// ── Admin: manually correct the current season's start time ─────────────────
+// The upstream API never exposes a season's real start time (see the
+// resolveSeasonStartTs comment above) — it's only ever inferred from
+// whenever this server first happens to observe the new season.id. If the
+// server was down, restarting, or otherwise missed a poll across the actual
+// rollover moment, that inference lands on whatever "now" was when it next
+// polled instead of the true start, which throws off anything anchored to
+// it (event "start at season's start", the season's duration shown in the
+// UI, and weekly-cut boundaries). This lets an admin who knows the real
+// start time (e.g. from the game itself) correct it after the fact.
+// Recomputes the week anchor from the corrected start and carries forward
+// already-tracked member progress instead of resetting it.
+app.post('/api/season/correct-start', (req, res) => {
+  const { seasonStartTs } = req.body || {};
+  if (typeof seasonStartTs !== 'number' || !Number.isFinite(seasonStartTs)) {
+    return res.status(400).json({ ok: false, error: 'seasonStartTs must be a number (ms since epoch).' });
+  }
+  if (!weeklyGainsState.seasonId || !weeklyGainsState.seasonEndTs) {
+    return res.status(409).json({ ok: false, error: 'No active season tracked yet — try again after the next poll.' });
+  }
+  if (seasonStartTs >= weeklyGainsState.seasonEndTs) {
+    return res.status(400).json({ ok: false, error: "seasonStartTs must be before this season's end time." });
+  }
+
+  const now         = Date.now();
+  const elapsed     = Math.max(0, now - seasonStartTs);
+  const weekIndex   = Math.floor(elapsed / WEEK_MS) + 1;
+  const weekStartTs = seasonStartTs + (weekIndex - 1) * WEEK_MS;
+
+  const prevMembers = weeklyGainsState.members || {};
+  const next = startNewWeek(weeklyGainsState.seasonId, weeklyGainsState.seasonEndTs, weekStartTs, weekIndex);
+  next.seasonStartTs = seasonStartTs;
+  next.clanPeakRep   = weeklyGainsState.clanPeakRep || 0; // not a real season change — carry forward
+
+  // Preserve gains already tracked this (mis-anchored) week instead of
+  // zeroing every member's progress out.
+  for (const [id, m] of Object.entries(prevMembers)) {
+    if (typeof m.currentRep !== 'number') continue;
+    const priorGain = Math.max(0, m.currentRep - (typeof m.weekStartRep === 'number' ? m.weekStartRep : m.currentRep));
+    next.members[id] = { name: m.name, weekStartRep: m.currentRep - priorGain, currentRep: m.currentRep };
+  }
+
+  weeklyGainsState = next;
+  writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
+  if (weeklyGainsWriteAllowed) {
+    syncWeeklyGainsToFirestore().catch((e) => console.warn('[season] Correction sync error:', e.message));
+  }
+  console.log('[season] Admin corrected seasonStartTs to', new Date(seasonStartTs).toISOString());
+  res.json({
+    ok: true,
+    seasonStartTs,
+    weekIndex:   next.weekIndex,
+    weekStartTs: next.weekStartTs,
+    weekEndTs:   next.weekEndTs,
+  });
+});
+
 // Discord bleed ping — proxied through the server so any logged-in member can
 // trigger it regardless of their Firestore client-side read permissions.
 // Webhook URL is disk-cached; server restart forces a fresh Firestore read.
