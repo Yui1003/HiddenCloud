@@ -31,20 +31,29 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;           // one weekly-gains cut = 7 d
 // (which would shift every weekly cut later by however many hours/days late
 // the deploy happens to land — whether that's the very first poll after
 // deploy, or a season rollover the old code already saw and recorded without
-// a precise start). Bounded to ~5 weeks past that date so it can never
-// accidentally apply to a later season once real time has moved on; every
-// season after this one is anchored automatically (from its own rollover
-// poll) same as before.
+// a precise start). The 35-day window alone doesn't prevent this being
+// reused for a *later* season (a season is only ~28 days, so the very next
+// rollover can still land inside it) — that combination previously caused
+// Season 9's rollover to be wrongly re-anchored to this Aug 16 date instead
+// of its own real start. It's now also gated by `allowKnownAnchor`, which
+// only true cold-start/migration callers pass (see updateWeeklyGains),
+// so it can only ever apply to the one season it was written for; every
+// season after that is anchored automatically from its own rollover poll.
 const KNOWN_CURRENT_SEASON_START_MS = Date.UTC(2026, 7, 16, 5, 0, 0);
 const KNOWN_ANCHOR_VALID_UNTIL_MS   = KNOWN_CURRENT_SEASON_START_MS + 35 * 24 * 60 * 60 * 1000;
 
-// Picks the precise start of the season currently being (re)anchored. Uses
-// the hardcoded known start while we're still within its validity window
-// (covers both a fresh/migrating state and the rollover poll that first
-// notices this season began), otherwise falls back to "now" — accurate to
-// one poll cycle (~5s) for any season after this one.
-function resolveSeasonStartTs(now, seasonEndTs) {
-  if (now < KNOWN_ANCHOR_VALID_UNTIL_MS && KNOWN_CURRENT_SEASON_START_MS < seasonEndTs) {
+// Picks the precise start of the season currently being (re)anchored.
+// `allowKnownAnchor` must be true for the hardcoded known start to be used
+// at all — callers only pass true for a genuine cold start / state
+// migration (see updateWeeklyGains below). A time window alone isn't a safe
+// guard: seasons run ~28 days, shorter than the anchor's old 35-day
+// "validity" window, so a real rollover to the *next* season could still
+// land inside that window and wrongly get re-anchored to this old date.
+// Restricting it to cold-start callers only means it can ever fire once,
+// for the one season it was actually written for; every later season is
+// always anchored from "now" — accurate to one poll cycle (~5s).
+function resolveSeasonStartTs(now, seasonEndTs, allowKnownAnchor) {
+  if (allowKnownAnchor && now < KNOWN_ANCHOR_VALID_UNTIL_MS && KNOWN_CURRENT_SEASON_START_MS < seasonEndTs) {
     return KNOWN_CURRENT_SEASON_START_MS;
   }
   return now;
@@ -55,8 +64,8 @@ function resolveSeasonStartTs(now, seasonEndTs) {
 // rollover is first detected and when migrating/starting fresh mid-season
 // (e.g. this deploy landing hours after the real 1PM PH reset already
 // happened) — either way "now" may already be into week 2+.
-function seedSeasonState(seasonId, seasonEndTs, now) {
-  const seasonStartTs = resolveSeasonStartTs(now, seasonEndTs);
+function seedSeasonState(seasonId, seasonEndTs, now, allowKnownAnchor) {
+  const seasonStartTs = resolveSeasonStartTs(now, seasonEndTs, allowKnownAnchor);
   const elapsed   = Math.max(0, now - seasonStartTs);
   const weekIndex = Math.floor(elapsed / WEEK_MS) + 1;
   const weekStartTs = seasonStartTs + (weekIndex - 1) * WEEK_MS;
@@ -496,7 +505,7 @@ function updateWeeklyGains(json) {
       console.warn('[weekly] Archive error:', e.message));
     archiveSeasonToFirestore(weeklyGainsState).catch((e) =>
       console.warn('[season] Archive error:', e.message));
-    weeklyGainsState = seedSeasonState(seasonId, seasonEndTs, now);
+    weeklyGainsState = seedSeasonState(seasonId, seasonEndTs, now, false);
   } else if (!weeklyGainsState.seasonId) {
     // First time we've seen season data for this run.
     // (A mid-season server restart is handled by restoreWeeklyGainsFromFirestore
@@ -504,7 +513,8 @@ function updateWeeklyGains(json) {
     const hasMigratedAnchor = typeof weeklyGainsState.weekStartTs === 'number';
     if (!hasMigratedAnchor) {
       // Fresh install, or migrating from the pre-weekly-cuts state shape.
-      weeklyGainsState = seedSeasonState(seasonId, seasonEndTs, now);
+      // This is the ONLY path allowed to use the known Aug 16 anchor.
+      weeklyGainsState = seedSeasonState(seasonId, seasonEndTs, now, true);
     } else {
       weeklyGainsState.seasonId    = seasonId;
       weeklyGainsState.seasonEndTs = seasonEndTs;
@@ -525,7 +535,21 @@ function updateWeeklyGains(json) {
   // firing that many Firestore writes and re-baselining members thousands
   // of times in a row. Detect that up front and reseed directly instead.
   const MIN_VALID_TS = Date.UTC(2024, 0, 1); // sanity floor — this app didn't exist before this
+  // One-time self-heal for the bug fixed above: a prior deploy could have
+  // wrongly re-applied the Aug 16 KNOWN_CURRENT_SEASON_START_MS anchor to a
+  // *later* season's rollover (the fixed anchor's validity window used to
+  // outlast a real season's length). That leaves seasonStartTs pinned to
+  // Aug 16 for a season whose real span is far longer than any one season
+  // should be. Flag it here so the reseed below runs once and corrects it
+  // to "now" — vastly closer to the truth than the wrong Aug 16 date, and
+  // this exact bug can no longer recur going forward (see resolveSeasonStartTs).
+  const MAX_SANE_SEASON_MS = 32 * 24 * 60 * 60 * 1000; // real seasons run ~28 days
+  const isStaleKnownAnchor =
+    weeklyGainsState.seasonStartTs === KNOWN_CURRENT_SEASON_START_MS &&
+    typeof weeklyGainsState.seasonEndTs === 'number' &&
+    (weeklyGainsState.seasonEndTs - KNOWN_CURRENT_SEASON_START_MS) > MAX_SANE_SEASON_MS;
   const hasValidWeekAnchor =
+    !isStaleKnownAnchor &&
     typeof weeklyGainsState.seasonStartTs === 'number' && weeklyGainsState.seasonStartTs > MIN_VALID_TS &&
     typeof weeklyGainsState.weekStartTs   === 'number' && weeklyGainsState.weekStartTs >= weeklyGainsState.seasonStartTs &&
     typeof weeklyGainsState.weekEndTs     === 'number' && weeklyGainsState.weekEndTs > weeklyGainsState.weekStartTs &&
@@ -535,7 +559,7 @@ function updateWeeklyGains(json) {
   if (!hasValidWeekAnchor) {
     console.warn('[weekly] Invalid/missing week anchor detected — reseeding from current reputation instead of walking forward from it.');
     const prevMembers = weeklyGainsState.members || {};
-    const reseeded = seedSeasonState(weeklyGainsState.seasonId, weeklyGainsState.seasonEndTs, now);
+    const reseeded = seedSeasonState(weeklyGainsState.seasonId, weeklyGainsState.seasonEndTs, now, false);
     // Carry forward any gain already legitimately observed this (broken)
     // week rather than zeroing it out, so real tracked progress isn't lost.
     for (const [id, m] of Object.entries(prevMembers)) {
@@ -562,7 +586,7 @@ function updateWeeklyGains(json) {
   while (now >= weeklyGainsState.weekEndTs && now < weeklyGainsState.seasonEndTs) {
     if (++cutIterations > 10) {
       console.error('[weekly] Weekly-cut loop exceeded 10 iterations — reseeding instead of continuing to walk forward.');
-      weeklyGainsState = seedSeasonState(weeklyGainsState.seasonId, weeklyGainsState.seasonEndTs, now);
+      weeklyGainsState = seedSeasonState(weeklyGainsState.seasonId, weeklyGainsState.seasonEndTs, now, false);
       break;
     }
     archiveWeekToFirestore(weeklyGainsState).catch((e) =>
