@@ -6092,7 +6092,9 @@ function renderLiveProgress(eventId) {
     const rankLabel = medalEmoji ? `${medalEmoji} #${myRank}` : `#${myRank}`;
     const myPingsHtml = isPingEvent
       ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">\uD83C\uDFD3 ${myEntry.pings} ping${myEntry.pings !== 1 ? 's' : ''} ${pendingBadge(myEntry, localPending)} \u00B7 ${myGain} rep this season ${eligBadge(myEntry)}</div>`
-      : '';
+      : (minRepGain > 0
+        ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">${eligBadge(myEntry)}</div>`
+        : '');
     myCardHtml = `<div class="ev-my-score-card">
       <div class="ev-my-score-label">Your Score</div>
       <div class="ev-my-score-body">
@@ -6120,7 +6122,10 @@ function renderLiveProgress(eventId) {
         `<div class="ev-lp-name">${esc(m.name)}${youTag}<div style="font-size:10.5px;color:var(--text3);margin-top:1px;white-space:normal">${rowPending ? rowPending + ' \u00B7 ' : ''}${gStr} rep this season${eligBadge(m)}</div></div>` +
         `<div class="ev-lp-pings">${m.pings || 0}</div></div>`;
     }
-    return `<div class="${rowCls}"><div class="${rCls}">#${rank}</div><div class="ev-lp-name">${esc(m.name)}${youTag}</div><div class="${gCls}">${gStr}</div></div>`;
+    const subHtml = minRepGain > 0
+      ? `<div style="font-size:10.5px;color:var(--text3);margin-top:1px;white-space:normal">${eligBadge(m)}</div>`
+      : '';
+    return `<div class="${rowCls}"><div class="${rCls}">#${rank}</div><div class="ev-lp-name">${esc(m.name)}${youTag}${subHtml}</div><div class="${gCls}">${gStr}</div></div>`;
   }).join('');
 
   const titleHtml = isActive
