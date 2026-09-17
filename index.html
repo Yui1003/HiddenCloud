@@ -1058,6 +1058,17 @@ body::before{
         <div id="wg-history-list"></div>
       </div>
     </div>
+
+    <!-- SEASON HISTORY SCREEN (admin only) -->
+    <div id="screen-season-history" class="screen">
+      <div id="ev-header">
+        <div id="ev-header-title">🏆 Season History</div>
+      </div>
+      <div style="font-size:11.5px;color:var(--text3);padding:0 2px 12px;line-height:1.4">
+        Clan and member reputation gains, captured automatically when each season ends. Seasons before this feature existed are reconstructed from weekly archives and won't have a clan peak figure.
+      </div>
+      <div id="sh-list"></div>
+    </div>
   </div>
 
   <!-- TAB BAR -->
@@ -1089,6 +1100,10 @@ body::before{
     <div class="tab" id="tab-suspects" onclick="showTab('suspects')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v3"/><path d="M11 14h.01"/></svg>
       <span>Suspects</span>
+    </div>
+    <div class="tab" id="tab-season-history" onclick="showTab('season-history')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/><circle cx="19" cy="9" r="1.5"/></svg>
+      <span>Seasons</span>
     </div>
     <div class="tab" id="tab-settings" onclick="showTab('settings')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -1172,13 +1187,14 @@ body::before{
     <div class="ev-form-row">
       <div class="ev-form-field" style="margin-bottom:0">
         <label class="ev-form-label" for="ev-f-start">Start Date &amp; Time</label>
-        <input class="ev-form-input" id="ev-f-start" type="datetime-local" />
+        <input class="ev-form-input" id="ev-f-start" type="datetime-local" oninput="updateEventStartHint()" onchange="updateEventStartHint()" />
       </div>
       <div class="ev-form-field" style="margin-bottom:0">
         <label class="ev-form-label" for="ev-f-end">End Date &amp; Time</label>
         <input class="ev-form-input" id="ev-f-end" type="datetime-local" />
       </div>
     </div>
+    <div id="ev-f-start-hint" style="display:none;font-size:11px;line-height:1.4;padding:2px 2px 12px;color:var(--text3)"></div>
     <div class="ev-form-field">
       <label class="ev-form-label" for="ev-f-condition">Condition</label>
       <textarea class="ev-form-input" id="ev-f-condition" rows="2" placeholder="e.g. Must gain at least 1,000 reputation to be eligible."></textarea>
@@ -1321,6 +1337,11 @@ let evOpenId           = null; // expanded active/upcoming event card id
 let evHistOpenId       = null; // expanded past event card id
 let evLiveId           = null; // event whose live progress panel is open
 let evEditingId        = null; // null = creating new, string = editing id
+
+// ── Season history state (admin only) ───────────────────────────────────────
+let seasonHistoryData    = [];    // array of past-season docs (newest first)
+let seasonHistoryFetched = false; // loaded lazily on first Season History tab open
+let shOpenSeasonId       = null;  // which season card is currently expanded
 
 // Controls which action the shared password modal performs
 let pwModalMode = 'delete'; // 'delete' | 'access' | 'archive'
@@ -2176,6 +2197,8 @@ function renderCurrentView() {
     renderSuspects();
   } else if (t === 'events') {
     renderEvents();
+  } else if (t === 'season-history') {
+    renderSeasonHistory();
   } else if (t === 'settings') {
     applySettings();
   }
@@ -3694,7 +3717,7 @@ function renderHistory() {
 // NAVIGATION
 // ============================================================
 function showTab(tab) {
-  if ((tab === 'deductions' || tab === 'suspects') && accessLevel !== 'admin') return;
+  if ((tab === 'deductions' || tab === 'suspects' || tab === 'season-history') && accessLevel !== 'admin') return;
   state.currentTab = tab;
   state.currentDetailClanId = null;
 
@@ -3712,6 +3735,7 @@ function showTab(tab) {
   // Lazy-load Firestore data for tabs that don't use persistent listeners
   if (tab === 'weekly') { fetchWeeklyGains(); if (db) loadWeeklyHistoryOnce(); }
   if (tab === 'events' && db) loadEventsFromFirestore();
+  if (tab === 'season-history' && db) loadSeasonHistoryOnce();
   if (tab === 'settings' && db && accessLevel === 'admin') fetchDiscordWebhookUrl();
 
   renderCurrentView();
@@ -4820,9 +4844,13 @@ function setAccessLevel(level) {
     else sessionStorage.removeItem('hcld_admin');
   } catch(_) {}
 
-  // Tab bar: show/hide Deductions and Suspects
+  // Tab bar: show/hide Deductions, Suspects and Season History
   document.getElementById('tab-deductions').style.display = isAdmin ? '' : 'none';
   document.getElementById('tab-suspects').style.display   = isAdmin ? '' : 'none';
+  document.getElementById('tab-season-history').style.display = isAdmin ? '' : 'none';
+  // If a normal user was somehow left on the season-history tab when access
+  // was revoked, bounce them back to Rankings rather than leave a blank admin screen.
+  if (!isAdmin && state.currentTab === 'season-history') showTab('rankings');
 
   // Weekly Gains tab: show/hide admin-only controls
   const wgDlBtn = document.getElementById('wg-download-btn');
@@ -5635,6 +5663,124 @@ function _exportWeekXlsx(fileLabel, startLabel, endLabel, membersArr, isArchived
 }
 
 // ============================================================
+// SEASON HISTORY (admin only)
+// ============================================================
+
+function loadSeasonHistoryOnce() {
+  if (seasonHistoryFetched || !db) return;
+  seasonHistoryFetched = true;
+  db.collection('seasonHistory')
+    .orderBy('seasonStartTs', 'desc')
+    .limit(30)
+    .get()
+    .then(snap => {
+      seasonHistoryData = [];
+      snap.forEach(d => seasonHistoryData.push(d.data()));
+      if (state.currentTab === 'season-history' && accessLevel === 'admin') renderSeasonHistory();
+    })
+    .catch(err => {
+      seasonHistoryFetched = false; // allow retry on next tab open
+      console.warn('Firestore seasonHistory error', err);
+    });
+}
+
+function renderSeasonHistory() {
+  const listEl = document.getElementById('sh-list');
+  if (!listEl) return;
+
+  if (!db) {
+    listEl.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text3)">Firebase isn\u2019t connected, so season history can\u2019t be loaded.</div>';
+    return;
+  }
+  if (!seasonHistoryFetched) { loadSeasonHistoryOnce(); }
+  if (seasonHistoryData.length === 0) {
+    listEl.innerHTML = '<div style="padding:12px 12px 8px;font-size:12px;color:var(--text3)">No seasons archived yet. A season\u2019s history is captured automatically the moment it rolls over into the next one.</div>';
+    return;
+  }
+
+  listEl.innerHTML = seasonHistoryData.map(function(s) {
+    const label = 'Season ' + esc(s.seasonId) +
+      (s.seasonStartTs ? ' \u00B7 ' + fmtDateTime(new Date(s.seasonStartTs)) : '');
+    const isOpen   = shOpenSeasonId === s.seasonId;
+    const members  = s.members || [];
+    const topGain  = members[0] ? fmtNum(members[0].totalGain) : '\u2014';
+    const peakStr  = s.clanPeakTracked ? fmtNum(s.clanPeakReputation || 0) : 'Not tracked';
+
+    let detailHtml = '';
+    if (isOpen) {
+      const rows = members.map(function(m, i) {
+        const rank = i + 1;
+        let rCls = 'wg-hist-rank';
+        const gCls = m.totalGain > 0 ? 'wg-hist-gain' : 'wg-hist-gain zero';
+        if (rank === 1) rCls += ' gold';
+        else if (rank === 2) rCls += ' silver';
+        else if (rank === 3) rCls += ' bronze';
+        return '<div class="wg-hist-row">' +
+          '<div class="' + rCls + '">#' + rank + '</div>' +
+          '<div class="wg-hist-name">' + esc(m.name) + '</div>' +
+          '<div class="' + gCls + '">' + (m.totalGain > 0 ? '+' + fmtNum(m.totalGain) : '\u2014') + '</div>' +
+          '</div>';
+      }).join('');
+      const backfillNote = s.backfilled
+        ? '<div style="padding:8px 12px 0;font-size:10.5px;color:var(--text3)">Reconstructed from weekly archives \u2014 season ended before this feature existed, so clan peak reputation wasn\u2019t tracked.</div>'
+        : '';
+      const dlKey = esc(s.seasonId);
+      detailHtml = '<div class="wg-hist-detail open">' + rows + backfillNote +
+        '<div class="wg-hist-dl-btn">' +
+        '<button class="export-btn" onclick="downloadSeasonHistoryXlsx(\'' + dlKey + '\')" title="Export this season as .xlsx">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+        ' Export Season ' + dlKey + '</button></div></div>';
+    }
+
+    const openKey = esc(s.seasonId);
+    return '<div class="wg-hist-card" onclick="toggleSeasonHistory(\'' + openKey + '\')">' +
+      '<div class="wg-hist-card-header">' +
+      '<div class="wg-hist-week-label">' + label + (s.backfilled ? ' <span style="font-size:9.5px;color:var(--text3);font-weight:600">(reconstructed)</span>' : '') + '</div>' +
+      '<div class="wg-hist-meta">' +
+      '<span style="font-size:11px;color:var(--text3)">Clan peak: ' + peakStr + '</span>' +
+      '<span style="font-size:11px;color:var(--green);font-weight:700;margin-left:6px">Top: +' + topGain + '</span>' +
+      '<span class="wg-hist-chevron' + (isOpen ? ' open' : '') + '">\u25BC</span>' +
+      '</div></div>' + detailHtml + '</div>';
+  }).join('');
+}
+
+function toggleSeasonHistory(seasonId) {
+  shOpenSeasonId = shOpenSeasonId === seasonId ? null : seasonId;
+  renderSeasonHistory();
+}
+
+function downloadSeasonHistoryXlsx(seasonId) {
+  if (accessLevel !== 'admin') return;
+  const s = seasonHistoryData.find(function(x) { return String(x.seasonId) === String(seasonId); });
+  if (!s) return;
+
+  const now = new Date();
+  const stamp = now.getFullYear() + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0') +
+                '_' + String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0');
+  const generatedAt = now.toLocaleDateString([], { weekday:'long', year:'numeric', month:'long', day:'numeric' }) +
+                      ' \u00B7 ' + now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const members = (s.members || []).slice().sort(function(a, b) { return b.totalGain - a.totalGain; });
+
+  const rows = [];
+  rows.push(['Hidden Cloud Village \u2014 Season History', '', '']);
+  rows.push(['Season: ' + s.seasonId, '', '']);
+  rows.push(['Clan peak reputation: ' + (s.clanPeakTracked ? (s.clanPeakReputation || 0) : 'Not tracked (pre-dates this feature)'), '', '']);
+  rows.push(['Generated: ' + generatedAt, '', '']);
+  if (s.backfilled) rows.push(['Note: reconstructed from weekly archives \u2014 season ended before this feature existed.', '', '']);
+  rows.push([]);
+  rows.push(['Rank', 'Member Name', 'Total Season Gain']);
+  members.forEach(function(m, i) {
+    rows.push([i + 1, m.name, m.totalGain || 0]);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 6 }, { wch: 26 }, { wch: 18 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Season ' + s.seasonId);
+  XLSX.writeFile(wb, 'season_history_' + s.seasonId + '_' + stamp + '.xlsx');
+}
+
+// ============================================================
 // EVENTS
 // ============================================================
 
@@ -6012,6 +6158,38 @@ function onTrackPingsToggle() {
   const on = document.getElementById('ev-f-track-pings').checked;
   const wrap = document.getElementById('ev-f-min-rep-wrap');
   if (wrap) wrap.style.display = on ? '' : 'none';
+  updateEventStartHint();
+}
+
+// Warns the admin when a non-ping event's start date is backdated — since
+// only a start at (or before) the season's actual start gets baselined at 0
+// automatically (same as Ping Events). Any other past date only baselines
+// from whenever the server first polls after saving, silently excluding
+// whatever was gained between the typed date and that moment.
+function updateEventStartHint() {
+  const hintEl = document.getElementById('ev-f-start-hint');
+  if (!hintEl) return;
+  const startVal = document.getElementById('ev-f-start').value;
+  const trackPings = document.getElementById('ev-f-track-pings').checked;
+  if (!startVal || trackPings) { hintEl.style.display = 'none'; return; }
+
+  const startTs = new Date(startVal).getTime();
+  if (isNaN(startTs)) { hintEl.style.display = 'none'; return; }
+
+  const seasonStartTs = weeklyGainsData && weeklyGainsData.seasonStartTs;
+  const now = Date.now();
+
+  if (typeof seasonStartTs === 'number' && startTs <= seasonStartTs) {
+    hintEl.style.display = '';
+    hintEl.style.color = 'var(--green)';
+    hintEl.textContent = '\u2713 At or before the season\u2019s start \u2014 members\u2019 current reputation will count in full, immediately.';
+  } else if (startTs < now) {
+    hintEl.style.display = '';
+    hintEl.style.color = 'var(--amber, #e6a23c)';
+    hintEl.textContent = '\u26A0\uFE0F Backdated, but not the season\u2019s start \u2014 only reputation gained from the moment this event is saved onward will count. Reputation gained before that (but after this date) won\u2019t be included.';
+  } else {
+    hintEl.style.display = 'none';
+  }
 }
 
 function openCreateEventForm() {
@@ -6026,6 +6204,7 @@ function openCreateEventForm() {
   document.getElementById('ev-f-track-pings').checked = false;
   document.getElementById('ev-f-min-rep').value   = '';
   onTrackPingsToggle();
+  updateEventStartHint();
   document.getElementById('ev-form-error').textContent = '';
   const saveBtn = document.getElementById('ev-form-save-btn');
   if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Event'; }
@@ -6047,6 +6226,7 @@ function editEvent(eventId) {
   document.getElementById('ev-f-track-pings').checked = !!ev.trackPings;
   document.getElementById('ev-f-min-rep').value   = (ev.minRepGain != null) ? ev.minRepGain : '';
   onTrackPingsToggle();
+  updateEventStartHint();
   document.getElementById('ev-form-error').textContent = '';
   const saveBtn = document.getElementById('ev-form-save-btn');
   if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Event'; }
