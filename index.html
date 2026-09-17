@@ -1959,8 +1959,22 @@ function getMemberPeak(clanId, memberId) {
 // ============================================================
 // DEDUCTION CHANGE TRACKING
 // ============================================================
+// The upstream rankings API occasionally reports a clan's deduction value
+// incorrectly for a single poll cycle (a "flap") before it self-corrects on
+// the next poll. Logging every raw change 1:1 against the previous poll
+// meant every flap got written to the deduction log (and pushed to
+// Firestore for every open client) as if it were real, which is what made
+// deductions look like they were constantly firing. To filter that out, a
+// new value must show up on DEDUCTION_CONFIRM_STREAK consecutive polls
+// before it's treated as real and compared/logged against the last
+// CONFIRMED value (state.confirmedDeduction), not the last raw poll. A
+// one-off flap that reverts before reaching that streak is silently
+// dropped and never logged or reported.
+const DEDUCTION_CONFIRM_STREAK = 2; // consecutive polls a new value must hold before it's trusted
+
 // Called every poll when data changes. Compares each clan's deduction
-// value against the previous snapshot and logs any change with a timestamp.
+// value against the last CONFIRMED value and logs any change with a
+// timestamp, once that change has held for DEDUCTION_CONFIRM_STREAK polls.
 function recordDeductionChanges() {
   if (!state.data || !state.prevData) return;
   // Admin has paused clan deduction tracking (e.g. the upstream rankings API
@@ -1970,13 +1984,42 @@ function recordDeductionChanges() {
   // captured below.
   if (trackerPause.deductions) return;
   if (!state.deductionLog) state.deductionLog = [];
+  if (!state.confirmedDeduction) state.confirmedDeduction = {}; // clanId -> last trusted deduction value
+  if (!state.pendingDeduction) state.pendingDeduction = {};     // clanId -> { value, streak } candidate awaiting confirmation
   const now = Date.now();
   for (const clan of state.data.clans) {
-    const prev = state.prevData.clans.find(c => c.id === clan.id);
-    if (!prev) continue;
-    const prevDed = prev.deduction || 0;
     const currDed = clan.deduction || 0;
-    if (currDed === prevDed) continue;
+
+    // First time seeing this clan this session: seed the trusted baseline
+    // without logging a "change" (there's nothing to compare against yet).
+    if (!(clan.id in state.confirmedDeduction)) {
+      state.confirmedDeduction[clan.id] = currDed;
+      continue;
+    }
+
+    const confirmedDed = state.confirmedDeduction[clan.id];
+    if (currDed === confirmedDed) {
+      delete state.pendingDeduction[clan.id]; // matches the known-good value again \u2014 any pending flap resolved itself
+      continue;
+    }
+
+    // Value differs from what's currently trusted. Track it as a candidate
+    // rather than logging immediately \u2014 it needs to repeat before we
+    // believe it.
+    const pending = state.pendingDeduction[clan.id];
+    if (pending && pending.value === currDed) {
+      pending.streak++;
+    } else {
+      state.pendingDeduction[clan.id] = { value: currDed, streak: 1 };
+    }
+    if (state.pendingDeduction[clan.id].streak < DEDUCTION_CONFIRM_STREAK) continue; // not confirmed yet \u2014 could still be a flap
+
+    // Confirmed real change: compare against the last trusted value, log it,
+    // and move the trusted baseline forward.
+    const prevDed = confirmedDed;
+    state.confirmedDeduction[clan.id] = currDed;
+    delete state.pendingDeduction[clan.id];
+
     state.deductionLog.unshift({
       clanId:        clan.id,
       clanName:      clan.name,
