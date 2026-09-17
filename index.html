@@ -1184,6 +1184,13 @@ body::before{
       <label class="ev-form-label" for="ev-f-desc">Description</label>
       <textarea class="ev-form-input" id="ev-f-desc" rows="3" placeholder="What is this event about?"></textarea>
     </div>
+    <label class="ev-form-toggle-row" for="ev-f-use-season-start">
+      <input type="checkbox" id="ev-f-use-season-start" onchange="onUseSeasonStartToggle()" />
+      <div class="ev-form-toggle-text">
+        <div class="ev-form-toggle-title">&#128197; Start at the season's start</div>
+        <div class="ev-form-toggle-sub">Automatically uses the season's real start time, so everyone's full season reputation counts from the beginning.</div>
+      </div>
+    </label>
     <div class="ev-form-row">
       <div class="ev-form-field" style="margin-bottom:0">
         <label class="ev-form-label" for="ev-f-start">Start Date &amp; Time</label>
@@ -1206,8 +1213,15 @@ body::before{
         <div class="ev-form-toggle-sub">Ranks members by how many bleeds they pinged (marked) during this event, alongside their reputation gained.</div>
       </div>
     </label>
+    <label class="ev-form-toggle-row" for="ev-f-require-min-rep">
+      <input type="checkbox" id="ev-f-require-min-rep" onchange="onRequireMinRepToggle()" />
+      <div class="ev-form-toggle-text">
+        <div class="ev-form-toggle-title">&#127919; Require Minimum Reputation</div>
+        <div class="ev-form-toggle-sub">Members must reach a minimum reputation gained this season to be eligible for this event — works for any event type, not just Ping Events.</div>
+      </div>
+    </label>
     <div class="ev-form-field" id="ev-f-min-rep-wrap" style="display:none">
-      <label class="ev-form-label" for="ev-f-min-rep">Minimum Reputation Gain to be Eligible (optional)</label>
+      <label class="ev-form-label" for="ev-f-min-rep">Minimum Reputation Gain to be Eligible</label>
       <input class="ev-form-input" id="ev-f-min-rep" type="number" min="0" step="1" placeholder="e.g. 15000" />
       <div style="font-size:10.5px;color:var(--text3);line-height:1.4">Measured as total reputation gained this season (not just during the event window).</div>
     </div>
@@ -5701,7 +5715,7 @@ function renderSeasonHistory() {
   listEl.innerHTML = seasonHistoryData.map(function(s) {
     const label = 'Season ' + esc(s.seasonId) +
       (s.seasonStartTs ? ' \u00B7 ' + fmtDateTime(new Date(s.seasonStartTs)) : '');
-    const isOpen   = shOpenSeasonId === s.seasonId;
+    const isOpen   = String(shOpenSeasonId) === String(s.seasonId); // compare as strings — shOpenSeasonId is always a string (set from an esc()'d onclick arg), s.seasonId is a Firestore number
     const members  = s.members || [];
     const topGain  = members[0] ? fmtNum(members[0].totalGain) : '\u2014';
     const peakStr  = s.clanPeakTracked ? fmtNum(s.clanPeakReputation || 0) : 'Not tracked';
@@ -5943,7 +5957,7 @@ function renderEventCard(ev) {
         <span class="ev-detail-label">\uD83D\uDCCC Condition</span>
         <span class="ev-detail-val">${esc(ev.condition)}</span>
       </div>` : ''}
-      ${(ev.trackPings && ev.minRepGain) ? `<div class="ev-detail-row">
+      ${ev.minRepGain ? `<div class="ev-detail-row">
         <span class="ev-detail-label">\uD83C\uDFAF Eligibility</span>
         <span class="ev-detail-val">Gain at least ${fmtNum(ev.minRepGain)} reputation this season</span>
       </div>` : ''}
@@ -5992,7 +6006,7 @@ function renderPastEventCard(ev) {
         <span class="ev-detail-label">\uD83D\uDCCC Condition</span>
         <span class="ev-detail-val" style="font-size:11px">${esc(ev.condition)}</span>
       </div>` : ''}
-      ${(ev.trackPings && ev.minRepGain) ? `<div class="ev-detail-row" style="margin-bottom:8px">
+      ${ev.minRepGain ? `<div class="ev-detail-row" style="margin-bottom:8px">
         <span class="ev-detail-label">\uD83C\uDFAF Eligibility</span>
         <span class="ev-detail-val" style="font-size:11px">Gain at least ${fmtNum(ev.minRepGain)} reputation this season</span>
       </div>` : ''}
@@ -6056,8 +6070,8 @@ function renderLiveProgress(eventId) {
     : -1;
   const myEntry = myIdx >= 0 ? sorted[myIdx] : null;
 
-  const eligible = (m) => !isPingEvent || minRepGain <= 0 || (m.eventGain || 0) >= minRepGain;
-  const eligBadge = (m) => (isPingEvent && minRepGain > 0)
+  const eligible = (m) => minRepGain <= 0 || (m.eventGain || 0) >= minRepGain;
+  const eligBadge = (m) => (minRepGain > 0)
     ? `<span class="ev-lp-elig ${eligible(m) ? 'yes' : 'no'}">${eligible(m) ? '\u2713 Eligible' : 'Not yet'}</span>`
     : '';
   // Pending pings are still inside their 30-min round and haven't been
@@ -6155,28 +6169,64 @@ function toggleLiveProgress(eventId) {
 
 // ── Admin: Create / Edit ──────────────────────────────────────────────────────
 function onTrackPingsToggle() {
-  const on = document.getElementById('ev-f-track-pings').checked;
-  const wrap = document.getElementById('ev-f-min-rep-wrap');
-  if (wrap) wrap.style.display = on ? '' : 'none';
   updateEventStartHint();
 }
 
-// Warns the admin when a non-ping event's start date is backdated — since
-// only a start at (or before) the season's actual start gets baselined at 0
-// automatically (same as Ping Events). Any other past date only baselines
-// from whenever the server first polls after saving, silently excluding
-// whatever was gained between the typed date and that moment.
+function onRequireMinRepToggle() {
+  const on = document.getElementById('ev-f-require-min-rep').checked;
+  const wrap = document.getElementById('ev-f-min-rep-wrap');
+  if (wrap) wrap.style.display = on ? '' : 'none';
+}
+
+// Toggling this on hands the start field over to the season's real start
+// time (as last reported by the server) and locks manual entry, since the
+// two would otherwise conflict. Toggling off hands control back and clears
+// whatever was auto-filled so it doesn't linger as a stale value.
+function onUseSeasonStartToggle() {
+  const use = document.getElementById('ev-f-use-season-start').checked;
+  const startInput = document.getElementById('ev-f-start');
+  const seasonStartTs = weeklyGainsData && weeklyGainsData.seasonStartTs;
+  if (use) {
+    if (typeof seasonStartTs === 'number') startInput.value = msToDatetimeLocal(seasonStartTs);
+    startInput.disabled = true;
+  } else {
+    startInput.disabled = false;
+  }
+  updateEventStartHint();
+}
+
+// Warns the admin when an event's start date is backdated — since only a
+// start at (or before) the season's actual start gets baselined at 0
+// automatically. Any other past date only baselines from whenever the
+// server first polls after saving, silently excluding whatever was gained
+// between the typed date and that moment.
 function updateEventStartHint() {
   const hintEl = document.getElementById('ev-f-start-hint');
   if (!hintEl) return;
+  const trackPings      = document.getElementById('ev-f-track-pings').checked;
+  const useSeasonStart  = document.getElementById('ev-f-use-season-start').checked;
+  if (trackPings) { hintEl.style.display = 'none'; return; }
+
+  const seasonStartTs = weeklyGainsData && weeklyGainsData.seasonStartTs;
+
+  if (useSeasonStart) {
+    hintEl.style.display = '';
+    if (typeof seasonStartTs === 'number') {
+      hintEl.style.color = 'var(--green)';
+      hintEl.textContent = '\u2713 Will start exactly at the season\u2019s start \u2014 members\u2019 current reputation will count in full, immediately.';
+    } else {
+      hintEl.style.color = 'var(--amber, #e6a23c)';
+      hintEl.textContent = '\u26A0\uFE0F Season start time isn\u2019t loaded yet \u2014 refresh the page before saving.';
+    }
+    return;
+  }
+
   const startVal = document.getElementById('ev-f-start').value;
-  const trackPings = document.getElementById('ev-f-track-pings').checked;
-  if (!startVal || trackPings) { hintEl.style.display = 'none'; return; }
+  if (!startVal) { hintEl.style.display = 'none'; return; }
 
   const startTs = new Date(startVal).getTime();
   if (isNaN(startTs)) { hintEl.style.display = 'none'; return; }
 
-  const seasonStartTs = weeklyGainsData && weeklyGainsData.seasonStartTs;
   const now = Date.now();
 
   if (typeof seasonStartTs === 'number' && startTs <= seasonStartTs) {
@@ -6198,12 +6248,16 @@ function openCreateEventForm() {
   document.getElementById('ev-form-title').textContent = '\u2728 Create Event';
   document.getElementById('ev-f-title').value     = '';
   document.getElementById('ev-f-desc').value      = '';
+  document.getElementById('ev-f-use-season-start').checked = false;
+  document.getElementById('ev-f-start').disabled  = false;
   document.getElementById('ev-f-start').value     = '';
   document.getElementById('ev-f-end').value       = '';
   document.getElementById('ev-f-condition').value = '';
   document.getElementById('ev-f-track-pings').checked = false;
+  document.getElementById('ev-f-require-min-rep').checked = false;
   document.getElementById('ev-f-min-rep').value   = '';
   onTrackPingsToggle();
+  onRequireMinRepToggle();
   updateEventStartHint();
   document.getElementById('ev-form-error').textContent = '';
   const saveBtn = document.getElementById('ev-form-save-btn');
@@ -6220,12 +6274,17 @@ function editEvent(eventId) {
   document.getElementById('ev-form-title').textContent = '\u270F\uFE0F Edit Event';
   document.getElementById('ev-f-title').value     = ev.title || '';
   document.getElementById('ev-f-desc').value      = ev.description || '';
+  document.getElementById('ev-f-use-season-start').checked = !!ev.useSeasonStart;
+  document.getElementById('ev-f-start').disabled  = false; // onUseSeasonStartToggle below re-disables if needed
   document.getElementById('ev-f-start').value     = msToDatetimeLocal(ev.startTs);
   document.getElementById('ev-f-end').value       = msToDatetimeLocal(ev.endTs);
   document.getElementById('ev-f-condition').value = ev.condition || '';
   document.getElementById('ev-f-track-pings').checked = !!ev.trackPings;
+  document.getElementById('ev-f-require-min-rep').checked = (ev.minRepGain != null);
   document.getElementById('ev-f-min-rep').value   = (ev.minRepGain != null) ? ev.minRepGain : '';
   onTrackPingsToggle();
+  onRequireMinRepToggle();
+  onUseSeasonStartToggle();
   updateEventStartHint();
   document.getElementById('ev-form-error').textContent = '';
   const saveBtn = document.getElementById('ev-form-save-btn');
@@ -6241,34 +6300,56 @@ function closeEventForm() {
 
 async function submitEventForm() {
   if (accessLevel !== 'admin' || !db) return;
-  const title     = document.getElementById('ev-f-title').value.trim();
-  const desc      = document.getElementById('ev-f-desc').value.trim();
-  const startVal  = document.getElementById('ev-f-start').value;
-  const endVal    = document.getElementById('ev-f-end').value;
-  const condition   = document.getElementById('ev-f-condition').value.trim();
-  const trackPings  = document.getElementById('ev-f-track-pings').checked;
-  const minRepRaw   = document.getElementById('ev-f-min-rep').value;
-  const minRepGain  = (trackPings && minRepRaw !== '') ? Number(minRepRaw) : null;
+  const title          = document.getElementById('ev-f-title').value.trim();
+  const desc           = document.getElementById('ev-f-desc').value.trim();
+  const useSeasonStart = document.getElementById('ev-f-use-season-start').checked;
+  const startVal       = document.getElementById('ev-f-start').value;
+  const endVal         = document.getElementById('ev-f-end').value;
+  const condition      = document.getElementById('ev-f-condition').value.trim();
+  const trackPings     = document.getElementById('ev-f-track-pings').checked;
+  const requireMinRep  = document.getElementById('ev-f-require-min-rep').checked;
+  const minRepRaw      = document.getElementById('ev-f-min-rep').value;
   const errEl     = document.getElementById('ev-form-error');
   const saveBtn   = document.getElementById('ev-form-save-btn');
 
-  if (!title)    { errEl.textContent = 'Title is required.'; return; }
-  if (!startVal) { errEl.textContent = 'Start date & time is required.'; return; }
-  if (!endVal)   { errEl.textContent = 'End date & time is required.'; return; }
+  if (!title)  { errEl.textContent = 'Title is required.'; return; }
+  if (!endVal) { errEl.textContent = 'End date & time is required.'; return; }
 
-  const startTs = new Date(startVal).getTime();
-  const endTs   = new Date(endVal).getTime();
-  if (isNaN(startTs) || isNaN(endTs)) { errEl.textContent = 'Invalid date/time values.'; return; }
-  if (endTs <= startTs)               { errEl.textContent = 'End time must be after start time.'; return; }
-  if (minRepGain !== null && (isNaN(minRepGain) || minRepGain < 0)) {
-    errEl.textContent = 'Minimum reputation gain must be a positive number.'; return;
+  const endTs = new Date(endVal).getTime();
+  if (isNaN(endTs)) { errEl.textContent = 'Invalid end date/time.'; return; }
+
+  // Resolve the start time. When "start at the season's start" is on, always
+  // re-derive it from the latest known season start rather than trusting the
+  // (disabled) field's value, which could be stale if this form was left
+  // open across a server poll.
+  let startTs;
+  if (useSeasonStart) {
+    const seasonStartTs = weeklyGainsData && weeklyGainsData.seasonStartTs;
+    if (typeof seasonStartTs !== 'number') {
+      errEl.textContent = 'Season start time isn\u2019t loaded yet \u2014 refresh the page and try again.'; return;
+    }
+    startTs = seasonStartTs;
+  } else {
+    if (!startVal) { errEl.textContent = 'Start date & time is required.'; return; }
+    startTs = new Date(startVal).getTime();
+    if (isNaN(startTs)) { errEl.textContent = 'Invalid start date/time.'; return; }
+  }
+
+  if (endTs <= startTs) { errEl.textContent = 'End time must be after start time.'; return; }
+
+  let minRepGain = null;
+  if (requireMinRep) {
+    minRepGain = Number(minRepRaw);
+    if (minRepRaw === '' || isNaN(minRepGain) || minRepGain < 0) {
+      errEl.textContent = 'Enter a valid minimum reputation amount.'; return;
+    }
   }
 
   errEl.textContent = '';
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
 
   const now  = Date.now();
-  const data = { title, description: desc, startTs, endTs, condition, trackPings, minRepGain, updatedAt: now };
+  const data = { title, description: desc, startTs, endTs, condition, useSeasonStart, trackPings, minRepGain, updatedAt: now };
 
   try {
     if (evEditingId) {
@@ -6327,8 +6408,9 @@ async function downloadEventXlsx(eventId) {
     } catch(e) { console.warn('Event gains fetch error', e); }
   }
 
-  const isPingEvent = !!ev.trackPings;
-  const minRepGain  = ev.minRepGain || 0;
+  const isPingEvent  = !!ev.trackPings;
+  const minRepGain   = ev.minRepGain || 0;
+  const hasMinRepGain = minRepGain > 0;
 
   const members = gains && gains.members
     ? Object.entries(gains.members).map(([id, m]) => ({ id, pings: 0, ...m })).sort((a, b) => isPingEvent
@@ -6342,7 +6424,7 @@ async function downloadEventXlsx(eventId) {
   const generatedAt = now.toLocaleDateString([], { weekday:'long', year:'numeric', month:'long', day:'numeric' }) +
                       ' \u00B7 ' + now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 
-  const colCount = isPingEvent ? 6 : 5;
+  const colCount = isPingEvent ? 6 : (hasMinRepGain ? 6 : 5);
   const pad = (arr) => { while (arr.length < colCount) arr.push(''); return arr; };
 
   const rows = [];
@@ -6350,16 +6432,21 @@ async function downloadEventXlsx(eventId) {
   rows.push(pad(['Event: ' + ev.title]));
   rows.push(pad(['Period: ' + fmtEvDateTime(ev.startTs) + ' \u2192 ' + fmtEvDateTime(ev.endTs)]));
   rows.push(pad(['Condition: ' + (ev.condition || '\u2014')]));
-  if (isPingEvent && minRepGain > 0) rows.push(pad(['Eligibility: at least ' + minRepGain + ' reputation gained this season']));
+  if (hasMinRepGain) rows.push(pad(['Eligibility: at least ' + minRepGain + ' reputation gained this season']));
   rows.push(pad(['Generated: ' + generatedAt]));
   rows.push([]);
   rows.push(isPingEvent
     ? ['Rank', 'Member Name', 'Pings', 'Season Rep Gained', 'Eligible', 'Season Rep (Start \u2192 Now)']
-    : ['Rank', 'Member Name', 'Rep Gained', 'Start Rep', 'End Rep']);
+    : hasMinRepGain
+      ? ['Rank', 'Member Name', 'Rep Gained', 'Eligible', 'Start Rep', 'End Rep']
+      : ['Rank', 'Member Name', 'Rep Gained', 'Start Rep', 'End Rep']);
   members.forEach((m, i) => {
     if (isPingEvent) {
       const isEligible = minRepGain <= 0 || (m.eventGain || 0) >= minRepGain;
       rows.push([i + 1, m.name, m.pings || 0, m.eventGain || 0, isEligible ? 'Yes' : 'No', (m.startRep || 0) + ' \u2192 ' + (m.currentRep || 0)]);
+    } else if (hasMinRepGain) {
+      const isEligible = (m.eventGain || 0) >= minRepGain;
+      rows.push([i + 1, m.name, m.eventGain || 0, isEligible ? 'Yes' : 'No', m.startRep || 0, m.currentRep || 0]);
     } else {
       rows.push([i + 1, m.name, m.eventGain || 0, m.startRep || 0, m.currentRep || 0]);
     }
@@ -6369,7 +6456,9 @@ async function downloadEventXlsx(eventId) {
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = isPingEvent
     ? [{ wch: 6 }, { wch: 26 }, { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 20 }]
-    : [{ wch: 6 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+    : hasMinRepGain
+      ? [{ wch: 6 }, { wch: 26 }, { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 14 }]
+      : [{ wch: 6 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws, 'Event Results');
   const safeName = ev.title.replace(/[^a-z0-9]/gi, '_').toLowerCase().slice(0, 30);
   XLSX.writeFile(wb, 'event_' + safeName + '_' + stamp + '.xlsx');
