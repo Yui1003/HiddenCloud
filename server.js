@@ -62,6 +62,7 @@ function seedSeasonState(seasonId, seasonEndTs, now) {
   const weekStartTs = seasonStartTs + (weekIndex - 1) * WEEK_MS;
   const next = startNewWeek(seasonId, seasonEndTs, weekStartTs, weekIndex);
   next.seasonStartTs = seasonStartTs;
+  next.clanPeakRep   = 0; // fresh season — reset the clan-wide peak tracker
   return next;
 }
 
@@ -493,6 +494,8 @@ function updateWeeklyGains(json) {
     // transition, otherwise "now".
     archiveWeekToFirestore(weeklyGainsState).catch((e) =>
       console.warn('[weekly] Archive error:', e.message));
+    archiveSeasonToFirestore(weeklyGainsState).catch((e) =>
+      console.warn('[season] Archive error:', e.message));
     weeklyGainsState = seedSeasonState(seasonId, seasonEndTs, now);
   } else if (!weeklyGainsState.seasonId) {
     // First time we've seen season data for this run.
@@ -540,6 +543,7 @@ function updateWeeklyGains(json) {
       const priorGain = Math.max(0, m.currentRep - (typeof m.weekStartRep === 'number' ? m.weekStartRep : m.currentRep));
       reseeded.members[id] = { name: m.name, weekStartRep: m.currentRep - priorGain, currentRep: m.currentRep };
     }
+    reseeded.clanPeakRep = weeklyGainsState.clanPeakRep || 0; // carry forward — not a true season change
     weeklyGainsState = reseeded;
     writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
     if (weeklyGainsWriteAllowed) {
@@ -571,6 +575,7 @@ function updateWeeklyGains(json) {
       weeklyGainsState.weekIndex + 1,
     );
     next.seasonStartTs = weeklyGainsState.seasonStartTs;
+    next.clanPeakRep   = weeklyGainsState.clanPeakRep || 0; // season-scoped — carries across weekly cuts
     // Re-baseline every currently-known member to their rep right now, so
     // the new week starts counting from zero.
     for (const [id, m] of Object.entries(prevMembers)) {
@@ -588,6 +593,16 @@ function updateWeeklyGains(json) {
   const members = weeklyGainsState.members;
   let changed = false;
   let newBaselineAdded = false; // a brand-new mid-season join was just baselined
+
+  // Clan-wide peak reputation for the season — tracked continuously (not
+  // just read once at season end) so the Season History snapshot doesn't
+  // depend on polling at exactly the right instant. Frozen once the season
+  // has ended, same as member gains above.
+  if (!seasonEnded && typeof hcClan.reputation === 'number' &&
+      hcClan.reputation > (weeklyGainsState.clanPeakRep || 0)) {
+    weeklyGainsState.clanPeakRep = hcClan.reputation;
+    changed = true;
+  }
 
   // Build the set of member IDs currently in the clan.
   const currentMemberIds = new Set((hcClan.member_list || []).map((m) => String(m.id)));
@@ -700,12 +715,79 @@ async function syncWeeklyGainsToFirestore() {
     seasonId:       weeklyGainsState.seasonId,
     seasonStartTs:  weeklyGainsState.seasonStartTs,
     seasonEndTs:    weeklyGainsState.seasonEndTs,
+    clanPeakRep:    weeklyGainsState.clanPeakRep || 0,
     clanId:         777,
     lastUpdated:    Date.now(),
     members,
   }));
   if (res.ok) console.log('[weekly] Synced weeklyGains/777 to Firestore.');
   else        console.warn('[weekly] Firestore sync failed:', res.status);
+}
+
+// Reconciles local eventGainsState[eventId] against Firestore's eventGains/{id}
+// doc. Called once per event, before any local baselining is trusted enough
+// to sync back out (see eventGainsReconciled). Without this, a server
+// restart mid-event would find eventGainsState empty, treat every member as
+// newly seen, re-baseline their startRep to current live reputation —
+// silently discarding all reputation already earned in the event so far —
+// and then overwrite the correct Firestore total with that smaller number.
+//
+// Merge rule mirrors restoreWeeklyGainsFromFirestore: for each member, keep
+// whichever startRep is LOWER (preserves the most gain already observed) and
+// whichever currentRep/pings/pendingPings is HIGHER (never move a value
+// backwards). A member only in Firestore is adopted outright; a member only
+// in local state (this same process instance, not yet synced) is left as-is.
+async function restoreEventGainsFromFirestore(eventId) {
+  try {
+    const res = await firestoreRequest('GET', `/eventGains/${eventId}`);
+    if (!res.ok) {
+      // 404 = nothing archived yet for this event (brand new) — nothing to
+      // reconcile, safe to allow syncing from here on.
+      if (res.status === 404) { eventGainsReconciled.add(eventId); return; }
+      console.warn(`[events] Restore read failed for ${eventId}:`, res.status);
+      return; // leave unreconciled — retried next time this event is (re)discovered
+    }
+    const doc = await res.json();
+    if (!doc.fields) { eventGainsReconciled.add(eventId); return; }
+
+    const fsMembers = fsRestVal(doc.fields.members) || {};
+    if (!eventGainsState[eventId]) eventGainsState[eventId] = { members: {} };
+    const local = eventGainsState[eventId].members;
+
+    let corrected = 0;
+    for (const [id, fsm] of Object.entries(fsMembers)) {
+      if (!local[id]) {
+        local[id] = {
+          name: fsm.name, startRep: fsm.startRep, currentRep: fsm.currentRep,
+          pings: fsm.pings || 0, pendingPings: fsm.pendingPings || 0,
+        };
+        corrected++;
+        continue;
+      }
+      if (typeof fsm.startRep === 'number' && fsm.startRep < local[id].startRep) {
+        local[id].startRep = fsm.startRep; corrected++;
+      }
+      if (typeof fsm.currentRep === 'number' && fsm.currentRep > local[id].currentRep) {
+        local[id].currentRep = fsm.currentRep; corrected++;
+      }
+      if (typeof fsm.pings === 'number' && fsm.pings > (local[id].pings || 0)) {
+        local[id].pings = fsm.pings; corrected++;
+      }
+      if (typeof fsm.pendingPings === 'number' && fsm.pendingPings > (local[id].pendingPings || 0)) {
+        local[id].pendingPings = fsm.pendingPings; corrected++;
+      }
+    }
+
+    eventGainsReconciled.add(eventId);
+    if (corrected > 0) {
+      writeJson(EVENT_GAINS_FILE, eventGainsState);
+      console.log(`[events] Reconciled ${corrected} value(s) for ${eventId} from Firestore.`);
+      scheduleEventGainsSync(eventId); // push the corrected/merged state back out right away
+    }
+  } catch (e) {
+    console.warn(`[events] Restore error for ${eventId}:`, e.message);
+    // Leave unreconciled — retried next time this event is (re)discovered.
+  }
 }
 
 // On startup: always read Firestore weeklyGains/777 and reconcile with local state.
@@ -815,6 +897,11 @@ async function restoreWeeklyGainsFromFirestore() {
           }
         }
       }
+      const fsClanPeak = fsVal(doc.fields.clanPeakRep);
+      if (typeof fsClanPeak === 'number' && fsClanPeak > (weeklyGainsState.clanPeakRep || 0)) {
+        weeklyGainsState.clanPeakRep = fsClanPeak;
+        corrected++;
+      }
       if (corrected > 0) {
         writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
         console.log(`[weekly] Corrected ${corrected} member baseline(s) from Firestore (lower weekStartRep used).`);
@@ -841,6 +928,7 @@ async function restoreWeeklyGainsFromFirestore() {
       seasonId:       fsSeasonId,
       seasonStartTs:  fsVal(doc.fields.seasonStartTs),
       seasonEndTs:    fsVal(doc.fields.seasonEndTs),
+      clanPeakRep:    fsVal(doc.fields.clanPeakRep) || 0,
       members,
     };
     writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
@@ -875,6 +963,113 @@ async function archiveWeekToFirestore(st) {
   }));
   if (!res.ok) console.warn('[weekly] Archive PATCH failed:', res.status);
   else         console.log('[weekly] Archived week', st.weekKey, 'to weeklyGainsHistory.');
+}
+
+// Writes a season's final snapshot to seasonHistory/{seasonId} the moment a
+// season rollover is detected — i.e. right before weeklyGainsState is reset
+// for the new season. `st` is still the OLD (just-ended) season's state at
+// this point. Reputation is cumulative for the whole season (reset to 0 only
+// at the true season start), so each member's `currentRep` here already IS
+// their total season gain — no need to sum weekly archives for the live
+// path (that summing is only needed for backfillSeasonHistoryIfMissing,
+// which covers seasons that ended before this feature existed).
+async function archiveSeasonToFirestore(st) {
+  if (!st.seasonId) return; // nothing to archive (e.g. very first-ever poll)
+  const membersArr = Object.values(st.members)
+    .map((m) => ({
+      name:      m.name,
+      totalGain: Math.max(0, m.currentRep),
+      finalRep:  m.currentRep,
+    }))
+    .sort((a, b) => b.totalGain - a.totalGain);
+  const res = await firestoreRequest('PATCH', `/seasonHistory/${st.seasonId}`, fsDoc({
+    seasonId:           st.seasonId,
+    seasonStartTs:       st.seasonStartTs || 0,
+    seasonEndTs:         st.seasonEndTs || 0,
+    clanPeakReputation:  st.clanPeakRep || 0,
+    clanPeakTracked:     true, // distinguishes a live archive (peak tracked all season) from a backfilled one
+    backfilled:          false,
+    archivedAt:          Date.now(),
+    members:             membersArr,
+  }));
+  if (!res.ok) console.warn('[season] Archive PATCH failed:', res.status);
+  else         console.log('[season] Archived season', st.seasonId, 'to seasonHistory.');
+}
+
+// One-time (per missing season) backfill: builds a seasonHistory/{seasonId}
+// doc for any season that has weeklyGainsHistory archives but no seasonHistory
+// doc yet — covers seasons that ended before this feature existed (Season 8
+// and earlier). There is no clan-peak figure for these (clanPeakTracked:
+// false), since clan reputation was never snapshotted pre-fix; member totals
+// are reconstructed by summing each member's weekGain across that season's
+// archived weeks, and finalRep is approximated as the highest endRep seen
+// for them in that season (their last archived week's endRep).
+async function backfillSeasonHistoryIfMissing() {
+  try {
+    const weeks = [];
+    let pageToken = null;
+    do {
+      const qs = 'pageSize=200' + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+      const res = await firestoreRequest('GET', `/weeklyGainsHistory?${qs}`);
+      if (!res.ok) { console.warn('[season] Backfill: weeklyGainsHistory read failed:', res.status); return; }
+      const data = await res.json();
+      for (const d of data.documents || []) {
+        const out = {};
+        for (const [k, v] of Object.entries(d.fields || {})) out[k] = fsRestVal(v);
+        weeks.push(out);
+      }
+      pageToken = data.nextPageToken || null;
+    } while (pageToken);
+    if (!weeks.length) return;
+
+    const bySeasonId = {};
+    for (const w of weeks) {
+      if (!w.seasonId) continue;
+      (bySeasonId[w.seasonId] = bySeasonId[w.seasonId] || []).push(w);
+    }
+
+    for (const [seasonId, seasonWeeks] of Object.entries(bySeasonId)) {
+      // Skip the currently-live season — it gets its real seasonHistory doc
+      // written naturally on rollover, with an accurate clan peak.
+      if (seasonId === weeklyGainsState.seasonId) continue;
+
+      const existing = await firestoreRequest('GET', `/seasonHistory/${seasonId}`);
+      if (existing.ok) {
+        const d = await existing.json();
+        if (d.fields) continue; // already archived (live or previously backfilled)
+      }
+
+      const totals = {}; // keyed by name — weeklyGainsHistory stores members as an array with no member id
+      let seasonStartTs = null, seasonEndTs = null;
+      for (const w of seasonWeeks) {
+        if (typeof w.seasonStartTs === 'number') seasonStartTs = w.seasonStartTs;
+        if (typeof w.weekEndTs === 'number' && (seasonEndTs === null || w.weekEndTs > seasonEndTs)) seasonEndTs = w.weekEndTs;
+        for (const m of (w.members || [])) {
+          if (!m || !m.name) continue;
+          if (!totals[m.name]) totals[m.name] = { name: m.name, totalGain: 0, finalRep: 0 };
+          totals[m.name].totalGain += Math.max(0, m.weekGain || 0);
+          if (typeof m.endRep === 'number' && m.endRep > totals[m.name].finalRep) totals[m.name].finalRep = m.endRep;
+        }
+      }
+      const membersArr = Object.values(totals).sort((a, b) => b.totalGain - a.totalGain);
+      if (!membersArr.length) continue;
+
+      const res = await firestoreRequest('PATCH', `/seasonHistory/${seasonId}`, fsDoc({
+        seasonId,
+        seasonStartTs:      seasonStartTs || 0,
+        seasonEndTs:        seasonEndTs || 0,
+        clanPeakReputation: 0,
+        clanPeakTracked:    false, // not tracked before this fix — reconstructed data has no clan-wide figure
+        backfilled:         true,
+        archivedAt:         Date.now(),
+        members:            membersArr,
+      }));
+      if (res.ok) console.log(`[season] Backfilled seasonHistory for season ${seasonId} (${membersArr.length} members).`);
+      else        console.warn(`[season] Backfill PATCH failed for season ${seasonId}:`, res.status);
+    }
+  } catch (e) {
+    console.warn('[season] Backfill error:', e.message);
+  }
 }
 
 // ── Discord webhook URL lookup ────────────────────────────────────────────────
@@ -1043,6 +1238,16 @@ let lastEventPingTally     = {};   // eventId → ms of last bleedEventLog tally
 const _eventGainsSyncTimers = {};  // eventId → timeout handle
 const _lastEventGainsSync   = {};  // eventId → ms
 
+// eventId → true once that event's local state has been reconciled against
+// Firestore (see restoreEventGainsFromFirestore below). Local state is never
+// synced back to Firestore for an event until this is true — otherwise a
+// server restart mid-event (the local .data/ file is wiped on every Render
+// restart/redeploy, unlike weeklyGains which restores from Firestore on
+// boot) would find eventGainsState empty, treat every member as newly seen,
+// re-baseline their startRep to current live reputation, and silently
+// overwrite the correct Firestore total with that smaller number.
+const eventGainsReconciled = new Set();
+
 // Structured-query REST call (list/GET only supports pagination, not filters —
 // this is needed to filter bleedEventLog by action + a ts range).
 async function firestoreRunQuery(structuredQuery) {
@@ -1096,6 +1301,17 @@ async function refreshCachedEvents() {
       typeof ev.endTs === 'number' &&
       now <= ev.endTs + EVENT_GAINS_GRACE_MS
     );
+
+    // Any event newly entering the tracking window — whether it's genuinely
+    // new or this is a server restart re-discovering an already-running one
+    // — must be reconciled against Firestore before its local state is
+    // trusted enough to baseline members or sync back out. See
+    // eventGainsReconciled / restoreEventGainsFromFirestore for why.
+    for (const ev of cachedEvents) {
+      if (!eventGainsReconciled.has(ev.id)) {
+        await restoreEventGainsFromFirestore(ev.id);
+      }
+    }
   } catch (e) {
     console.warn('[events] Failed to refresh events list:', e.message);
   }
@@ -1113,6 +1329,11 @@ function scheduleEventGainsSync(eventId) {
 }
 
 async function syncEventGainsToFirestore(eventId) {
+  // Never push local state for an event that hasn't been reconciled against
+  // Firestore yet — a fresh-after-restart local state is not safe to trust
+  // until restoreEventGainsFromFirestore has merged in whatever was already
+  // recorded. See eventGainsReconciled for the full reasoning.
+  if (!eventGainsReconciled.has(eventId)) return;
   const st = eventGainsState[eventId];
   if (!st) return;
   _lastEventGainsSync[eventId] = Date.now();
@@ -1302,6 +1523,27 @@ function updateEventGains(json) {
     const st = eventGainsState[ev.id];
     let changed = false;
 
+    // Ping Events measure reputation gained since the SEASON started, not
+    // since the event started — and the rankings API already reports
+    // `reputation` as cumulative for the season (see the note in
+    // updateWeeklyGains above), so their baseline is always 0.
+    //
+    // Regular (non-ping) events normally baseline at the event's own start
+    // instead, since their conditions are meant to measure gain during the
+    // event window specifically. But if the event was deliberately backdated
+    // to start at (or before) the season's actual start — e.g. an admin
+    // wants "Top Gainer" to reflect the whole season's progress, created
+    // partway through — a member's current reputation *already is* their
+    // full gain since that point, exactly like a Ping Event. Without this,
+    // the event would instead baseline at whatever each member's rep happens
+    // to be the moment the server first polls after creation, silently
+    // dropping everything they'd already earned between the season's real
+    // start and the event being created.
+    const useSeasonStartBaseline = ev.trackPings ||
+      (typeof ev.startTs === 'number' &&
+       typeof weeklyGainsState.seasonStartTs === 'number' &&
+       ev.startTs <= weeklyGainsState.seasonStartTs);
+
     if (now <= ev.endTs) {
       for (const member of hcClan.member_list || []) {
         const id  = String(member.id);
@@ -1309,15 +1551,7 @@ function updateEventGains(json) {
         if (!st.members[id]) {
           // First time seen during this event — baseline them now (covers
           // both the event's start and anyone who joins the clan mid-event).
-          //
-          // Ping Events measure reputation gained since the SEASON started,
-          // not since the event started — and the rankings API already
-          // reports `reputation` as cumulative for the season (see the note
-          // in updateWeeklyGains above), so that baseline is always 0; the
-          // member's live reputation figure *is* their season-to-date gain.
-          // Regular (non-ping) events keep the event-start snapshot, since
-          // their conditions are meant to measure gain during the event.
-          st.members[id] = { name: member.name, startRep: ev.trackPings ? 0 : rep, currentRep: rep, pings: 0, pendingPings: 0 };
+          st.members[id] = { name: member.name, startRep: useSeasonStartBaseline ? 0 : rep, currentRep: rep, pings: 0, pendingPings: 0 };
           changed = true;
         } else {
           if (st.members[id].name !== member.name) { st.members[id].name = member.name; changed = true; }
@@ -1960,6 +2194,7 @@ app.listen(PORT, '0.0.0.0', async () => {
   if (weeklyGainsState.weekKey && weeklyGainsWriteAllowed) {
     syncWeeklyGainsToFirestore().catch(e => console.warn('[weekly] Startup sync error:', e.message));
   }
+  backfillSeasonHistoryIfMissing().catch(e => console.warn('[season] Startup backfill error:', e.message));
   await fetchConfirmedBleeds();            // prime SSE state before first client connects
   setInterval(fetchConfirmedBleeds, CONFIRMED_BLEEDS_FALLBACK_POLL_MS); // 30 s fallback poll
   await backfillTrackerCache();            // prime suspects/deductions/rounds/bleed-log once
