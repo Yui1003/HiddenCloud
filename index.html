@@ -987,6 +987,19 @@ body::before{
           <div class="settings-row-sub" style="padding:0 14px 12px">This pauses tracking for every open device, not just yours \u2014 the setting is shared and survives a server restart.</div>
         </div>
 
+        <div class="settings-section" style="margin-top:10px;display:none" id="settings-season-start-section">
+          <div class="settings-section-title">&#128337; Correct Season Start Time (Admin Only)</div>
+          <div class="settings-row-sub" style="padding:0 14px 8px">The game's API never tells us exactly when a season started \u2014 it's inferred from whenever this server first noticed the new season. If the server missed the real rollover moment (e.g. it was briefly down), that guess can land days late, which throws off event durations and the "start at season's start" option. Use this to set the real start time if you know it.</div>
+          <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+            <div style="width:100%;font-size:12px;color:var(--text3)" id="season-start-current">Current season start: loading\u2026</div>
+            <input class="ev-form-input" id="season-start-input" type="datetime-local" style="width:100%" />
+          </div>
+          <div class="settings-btn-row" style="padding:8px 14px 6px">
+            <button class="btn-danger" id="btn-correct-season-start" onclick="correctSeasonStart()">Save Corrected Start Time</button>
+          </div>
+          <div id="season-start-msg" style="padding:0 14px 12px;font-size:11.5px"></div>
+        </div>
+
         <div class="settings-section" style="margin-top:10px;display:none" id="settings-discord-section">
           <div class="settings-section-title">&#128226; Discord Webhook (Admin Only)</div>
           <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
@@ -4942,6 +4955,13 @@ function setAccessLevel(level) {
     if (isAdmin) renderTrackingControls();
   }
 
+  // Settings: show/hide Correct Season Start Time section (admin only)
+  const seasonStartSection = document.getElementById('settings-season-start-section');
+  if (seasonStartSection) {
+    seasonStartSection.style.display = isAdmin ? '' : 'none';
+    if (isAdmin) renderSeasonStartCorrection();
+  }
+
   // Settings: show/hide Discord webhook section (admin only)
   const discordSection = document.getElementById('settings-discord-section');
   if (discordSection) {
@@ -5029,6 +5049,61 @@ function renderTrackingControls() {
     bothBtn.textContent = bothStopped ? '\u25B6 Resume Both' : '\u23F8 Stop Both (Deduction + Suspect)';
     bothBtn.className = bothStopped ? 'btn-primary' : 'btn-danger';
   }
+}
+
+// ============================================================
+// SEASON START CORRECTION (admin only)
+// ============================================================
+// Fills the read-only "current" line and pre-fills the input with whatever
+// seasonStartTs the server currently has, so opening this panel shows the
+// value about to be corrected rather than a blank field.
+function renderSeasonStartCorrection() {
+  const curEl = document.getElementById('season-start-current');
+  const inputEl = document.getElementById('season-start-input');
+  if (!curEl || !inputEl) return;
+  const ts = weeklyGainsData && weeklyGainsData.seasonStartTs;
+  if (typeof ts === 'number') {
+    curEl.textContent = 'Current season start: ' + fmtDateTime(new Date(ts)) + ' (Season ' +
+      (weeklyGainsData.seasonId || '?') + ')';
+    if (!inputEl.value) inputEl.value = msToDatetimeLocal(ts);
+  } else {
+    curEl.textContent = 'Current season start: not loaded yet \\u2014 refresh the page.';
+  }
+}
+
+function correctSeasonStart() {
+  const inputEl = document.getElementById('season-start-input');
+  const msgEl = document.getElementById('season-start-msg');
+  if (!inputEl || !msgEl) return;
+  const val = inputEl.value;
+  if (!val) { msgEl.style.color = 'var(--amber, #e6a23c)'; msgEl.textContent = 'Pick a date & time first.'; return; }
+  const ts = new Date(val).getTime();
+  if (isNaN(ts)) { msgEl.style.color = 'var(--amber, #e6a23c)'; msgEl.textContent = 'That date & time isn\\u2019t valid.'; return; }
+
+  const btn = document.getElementById('btn-correct-season-start');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving\\u2026'; }
+  msgEl.style.color = 'var(--text3)'; msgEl.textContent = '';
+
+  fetch('/api/season/correct-start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ seasonStartTs: ts }),
+  }).then(res => res.json().then(data => ({ ok: res.ok, data }))).then(({ ok, data }) => {
+    if (!ok || !data || !data.ok) {
+      msgEl.style.color = 'var(--red)';
+      msgEl.textContent = (data && data.error) ? data.error : 'Failed to save.';
+      return;
+    }
+    msgEl.style.color = 'var(--green)';
+    msgEl.textContent = '\\u2713 Season start corrected. Events using \"start at season\\u2019s start\" will now use this time.';
+    fetchWeeklyGains().then(renderSeasonStartCorrection);
+  }).catch(e => {
+    msgEl.style.color = 'var(--red)';
+    msgEl.textContent = 'Network error \\u2014 could not reach the server.';
+    console.warn('correctSeasonStart error', e);
+  }).finally(() => {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Corrected Start Time'; }
+  });
 }
 
 // ============================================================
@@ -6622,6 +6697,7 @@ window.downloadSeasonReport         = downloadSeasonReport;
 window.toggleDeductionTracking      = toggleDeductionTracking;
 window.toggleSuspectTracking        = toggleSuspectTracking;
 window.toggleBothTracking           = toggleBothTracking;
+window.correctSeasonStart           = correctSeasonStart;
 
 })(); // end IIFE \u2014 all internals (accessLevel, setAccessLevel, etc.) are private
 </script>
