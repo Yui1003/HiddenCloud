@@ -2202,6 +2202,34 @@ app.post('/api/rounds/clear', async (req, res) => {
   }
 });
 
+// Deletes every doc in the suspectLog and deductionLog Firestore collections,
+// clears the server's in-memory caches + seen-key sets (so /api/tracker-snapshot
+// stops serving deleted entries to newly-opened/reloaded tabs), and broadcasts
+// to every connected client so open tabs drop their local copies immediately
+// too — mirroring /api/rounds/clear above. "Delete Firebase Records" used to
+// delete straight from Firestore via the client SDK with a plain .limit(500)
+// query (so anything past the first 500 docs in either collection was never
+// even touched) and never told this server about it at all — so
+// /api/tracker-snapshot kept serving the old, supposedly-deleted suspect and
+// deduction entries to every tab that loaded or reloaded afterward.
+app.post('/api/suspects-deductions/clear', async (req, res) => {
+  try {
+    const [deletedSuspects, deletedDeductions] = await Promise.all([
+      firestoreDeleteAllDocs('suspectLog'),
+      firestoreDeleteAllDocs('deductionLog'),
+    ]);
+    trackerCache.suspects   = [];
+    trackerCache.deductions = [];
+    trackerSeenKeys.suspects.clear();
+    trackerSeenKeys.deductions.clear();
+    broadcastTracker('suspectsDeductionsCleared', { clearedAt: Date.now() });
+    res.json({ ok: true, deletedSuspects, deletedDeductions });
+  } catch (e) {
+    console.warn('[tracker] suspects/deductions clear error:', e.message);
+    res.status(500).json({ error: 'Failed to clear suspect/deduction records.' });
+  }
+});
+
 // bleedEventLog writes stay client-side (they're one-off admin button clicks,
 // not auto-detected every poll, so they were never the source of duplicate
 // writes — only the listener reading them was expensive). This endpoint just
