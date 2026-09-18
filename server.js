@@ -16,7 +16,6 @@ const SUBSCRIPTIONS_FILE = path.join(DATA_DIR, 'push-subscriptions.json'); // lo
 const DETECTOR_STATE_FILE = path.join(DATA_DIR, 'push-detector-state.json');
 const FIREBASE_TOKEN_FILE = path.join(DATA_DIR, 'firebase-token.json');
 const WEEKLY_GAINS_FILE         = path.join(DATA_DIR, 'weekly-gains-state.json');
-const TRACKER_PAUSE_FILE        = path.join(DATA_DIR, 'tracker-pause-state.json');
 
 const WEEKLY_GAINS_SYNC_INTERVAL_MS = 5 * 60_000;  // Write weeklyGains/777 at most every 5 min
 const WEEKLY_GAINS_RESTORE_RETRY_MS = 60_000;       // Retry a failed baseline restore
@@ -1763,7 +1762,7 @@ async function fetchConfirmedBleeds() {
   }
 }
 
-// ── Suspect / deduction / round-history: server-owned write + broadcast ──────
+// ── Round-history: server-owned write + broadcast ────────────────────────────
 // Every open client independently *detects* these events from the same
 // polled rankings data (that detection logic stays in the browser — it's
 // tightly coupled to each client's own live round/peak-tracking state, so
@@ -1778,25 +1777,10 @@ async function fetchConfirmedBleeds() {
 // exactly one Firestore write and one fan-out, instead of N writes and
 // N-times-listeners reads.
 
-const TRACKER_CACHE_LIMITS = { suspects: 1000, deductions: 500, rounds: 100, bleedEvents: 500 };
-const trackerCache = { suspects: [], deductions: [], rounds: [], bleedEvents: [] };
-const trackerSeenKeys = { suspects: new Set(), deductions: new Set(), rounds: new Set() };
+const TRACKER_CACHE_LIMITS = { rounds: 100, bleedEvents: 500 };
+const trackerCache = { rounds: [], bleedEvents: [] };
+const trackerSeenKeys = { rounds: new Set() };
 const trackerSseClients = new Set();
-
-// ── Tracker pause switches (admin-controlled) ────────────────────────────────
-// The upstream clan-rankings API occasionally goes haywire and flaps a clan's
-// deduction value every poll cycle. Every open client "detects" a change each
-// time that happens and reports it here, which — even with the seen-key
-// dedup below — still means the server keeps writing a fresh Firestore doc
-// for every distinct flapping value. These switches let an admin kill the
-// deduction and/or suspect ingestion pipelines at the source (before any
-// Firestore write happens) until the upstream data settles down again.
-// Persisted to a local file so the paused state survives a server restart.
-let trackerPause = readJson(TRACKER_PAUSE_FILE, { deductions: false, suspects: false });
-
-function saveTrackerPause() {
-  writeJson(TRACKER_PAUSE_FILE, trackerPause);
-}
 
 function broadcastTracker(type, entry) {
   const payload = `data: ${JSON.stringify({ type, entry })}\n\n`;
@@ -1844,14 +1828,10 @@ async function backfillTrackerCache() {
       return [];
     }
   }
-  const [suspects, deductions, rounds, bleedEvents] = await Promise.all([
-    fetchRecent('suspectLog', 'ts', 200),
-    fetchRecent('deductionLog', 'ts', 100),
+  const [rounds, bleedEvents] = await Promise.all([
     fetchRecent('roundHistory', 'endTs', 96),
     fetchRecent('bleedEventLog', 'ts', 100),
   ]);
-  trackerCache.suspects   = suspects;
-  trackerCache.deductions = deductions;
   trackerCache.rounds     = rounds.slice().sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
   // The client dedupes bleedEventLog entries by `_id` (underscore) — that field
   // is only ever attached by the writing client at broadcast time, never by
@@ -1860,8 +1840,6 @@ async function backfillTrackerCache() {
   // without this, every reconnect/reload re-added the whole cached log with
   // no way to recognize duplicates (bug: history showing each mark/clear 3x).
   trackerCache.bleedEvents = bleedEvents.map(e => ({ _id: e.id, ...e }));
-  for (const s of suspects)   if (s.dedupKey) trackerSeenKeys.suspects.add(s.dedupKey);
-  for (const d of deductions) trackerSeenKeys.deductions.add(`${d.clanId}_${d.ts}`);
   for (const r of rounds)     trackerSeenKeys.rounds.add(r.id);
 }
 
@@ -2104,56 +2082,9 @@ app.post('/api/bleeds/sync', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Tracker channel: suspects / deductions / rounds / bleed-event log ────────
-// Replaces the four per-client Firestore onSnapshot listeners + direct writes
+// ── Tracker channel: rounds / bleed-event log ────────────────────────────────
+// Replaces the per-client Firestore onSnapshot listeners + direct writes
 // that used to live in index.html for these collections.
-
-app.post('/api/suspects', async (req, res) => {
-  if (trackerPause.suspects) return res.json({ ok: true, paused: true });
-  const entry = req.body;
-  if (!entry || typeof entry.dedupKey !== 'string' || !entry.dedupKey) {
-    return res.status(400).json({ error: 'dedupKey is required.' });
-  }
-  const isNew = await ingestTrackerEvent('suspect', 'suspectLog', entry.dedupKey, entry, 'suspects');
-  res.json({ ok: true, duplicate: !isNew });
-});
-
-app.post('/api/deductions', async (req, res) => {
-  if (trackerPause.deductions) return res.json({ ok: true, paused: true });
-  const entry = req.body;
-  if (!entry || typeof entry.clanId === 'undefined' || typeof entry.ts !== 'number') {
-    return res.status(400).json({ error: 'clanId and ts are required.' });
-  }
-  // entry.ts is a local Date.now() from whichever client detected the change
-  // first, so it can differ by a few seconds between clients watching the
-  // same real event. Bucket it into a 30 s window (well above normal
-  // cross-client poll skew) so those near-simultaneous reports collapse into
-  // one Firestore write, while a genuine repeat of the same deduction value
-  // hours later still gets logged as its own entry.
-  const bucket = Math.floor(entry.ts / 30000);
-  const docId = `${entry.clanId}_${entry.deduction}_${bucket}`;
-  const isNew = await ingestTrackerEvent('deduction', 'deductionLog', docId, entry, 'deductions');
-  res.json({ ok: true, duplicate: !isNew });
-});
-
-// Admin-only pause switches for the deduction/suspect auto-detection pipelines
-// (see trackerPause above). GET lets a freshly-opened client know the current
-// state; POST flips it, persists to disk, and broadcasts to every connected
-// client over the existing tracker SSE stream so all open tabs — not just the
-// admin's — reflect the change immediately.
-app.get('/api/tracker-pause', (_req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.json(trackerPause);
-});
-
-app.post('/api/tracker-pause', (req, res) => {
-  const { deductions, suspects } = req.body || {};
-  if (typeof deductions === 'boolean') trackerPause.deductions = deductions;
-  if (typeof suspects === 'boolean')   trackerPause.suspects   = suspects;
-  saveTrackerPause();
-  broadcastTracker('pauseState', trackerPause);
-  res.json({ ok: true, pause: trackerPause });
-});
 
 app.post('/api/rounds', async (req, res) => {
   const entry = req.body;
@@ -2202,34 +2133,6 @@ app.post('/api/rounds/clear', async (req, res) => {
   }
 });
 
-// Deletes every doc in the suspectLog and deductionLog Firestore collections,
-// clears the server's in-memory caches + seen-key sets (so /api/tracker-snapshot
-// stops serving deleted entries to newly-opened/reloaded tabs), and broadcasts
-// to every connected client so open tabs drop their local copies immediately
-// too — mirroring /api/rounds/clear above. "Delete Firebase Records" used to
-// delete straight from Firestore via the client SDK with a plain .limit(500)
-// query (so anything past the first 500 docs in either collection was never
-// even touched) and never told this server about it at all — so
-// /api/tracker-snapshot kept serving the old, supposedly-deleted suspect and
-// deduction entries to every tab that loaded or reloaded afterward.
-app.post('/api/suspects-deductions/clear', async (req, res) => {
-  try {
-    const [deletedSuspects, deletedDeductions] = await Promise.all([
-      firestoreDeleteAllDocs('suspectLog'),
-      firestoreDeleteAllDocs('deductionLog'),
-    ]);
-    trackerCache.suspects   = [];
-    trackerCache.deductions = [];
-    trackerSeenKeys.suspects.clear();
-    trackerSeenKeys.deductions.clear();
-    broadcastTracker('suspectsDeductionsCleared', { clearedAt: Date.now() });
-    res.json({ ok: true, deletedSuspects, deletedDeductions });
-  } catch (e) {
-    console.warn('[tracker] suspects/deductions clear error:', e.message);
-    res.status(500).json({ error: 'Failed to clear suspect/deduction records.' });
-  }
-});
-
 // bleedEventLog writes stay client-side (they're one-off admin button clicks,
 // not auto-detected every poll, so they were never the source of duplicate
 // writes — only the listener reading them was expensive). This endpoint just
@@ -2253,7 +2156,7 @@ app.post('/api/bleed-events', (req, res) => {
 // no matter how many people do it at once.
 app.get('/api/tracker-snapshot', (_req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ ...trackerCache, pause: trackerPause });
+  res.json({ ...trackerCache });
 });
 
 // Live stream — one shared connection per client, no Firestore listener behind it.
@@ -2306,7 +2209,7 @@ app.listen(PORT, '0.0.0.0', async () => {
   backfillSeasonHistoryIfMissing().catch(e => console.warn('[season] Startup backfill error:', e.message));
   await fetchConfirmedBleeds();            // prime SSE state before first client connects
   setInterval(fetchConfirmedBleeds, CONFIRMED_BLEEDS_FALLBACK_POLL_MS); // 30 s fallback poll
-  await backfillTrackerCache();            // prime suspects/deductions/rounds/bleed-log once
+  await backfillTrackerCache();            // prime rounds/bleed-log once
   pollForPossibleBleeding();
   setInterval(pollForPossibleBleeding, POLL_INTERVAL_MS);
 });
