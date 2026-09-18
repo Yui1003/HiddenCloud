@@ -352,22 +352,6 @@ body::before{
 .rank-change{font-size:10px;margin-left:4px}
 .rank-change.up{color:var(--green)}
 .rank-change.down{color:var(--red)}
-/* DEDUCTION LOG */
-.ded-entry{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin:0 12px 5px;cursor:pointer;transition:border-color .2s;display:flex;flex-direction:column;gap:0}
-.ded-top-row{display:flex;align-items:center;gap:10px}
-.ded-entry:hover{border-color:var(--border2)}
-.ded-entry.new{border-color:rgba(243,139,168,0.5);background:linear-gradient(90deg,rgba(243,139,168,0.07),var(--card))}
-.ded-time{font-size:11px;color:var(--text3);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:52px}
-.ded-clan{flex:1;min-width:0}
-.ded-clan-name{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ded-clan-rank{font-size:10px;color:var(--text3);margin-top:1px}
-.ded-amounts{text-align:right;flex-shrink:0}
-.ded-total{font-size:13px;font-weight:700;color:var(--red);font-variant-numeric:tabular-nums}
-.ded-change{font-size:11px;font-weight:700;color:var(--orange);font-variant-numeric:tabular-nums;margin-top:1px}
-.ded-date-header{padding:8px 12px 4px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.8px}
-.ded-filter-bar{display:flex;gap:6px;padding:8px 12px;flex-shrink:0;overflow-x:auto}
-.ded-filter-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text3);padding:4px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap;transition:all .2s}
-.ded-filter-btn.active{background:rgba(243,139,168,0.15);border-color:rgba(243,139,168,0.5);color:var(--red)}
 .rank-filter-bar{display:flex;gap:6px;padding:6px 12px 2px;flex-wrap:wrap}
 .rank-filter-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text3);padding:4px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap;transition:all .2s}
 .rank-filter-btn.active{background:rgba(240,165,0,0.15);border-color:rgba(240,165,0,0.5);color:var(--mauve)}
@@ -375,34 +359,6 @@ body::before{
 .rank-filter-btn.manual.active{background:rgba(166,227,161,0.15);border-color:rgba(166,227,161,0.5);color:#a6e3a1}
 .rank-filter-btn.risk.active{background:rgba(250,179,135,0.15);border-color:rgba(250,179,135,0.5);color:#fab387}
 .rank-filter-btn.confirmed-bleed.active{background:rgba(243,139,168,0.15);border-color:rgba(243,139,168,0.5);color:var(--red)}
-/* SUSPECT / CHEATER DETECTION */
-.badge-suspect-high{background:rgba(243,139,168,0.25);color:#f38ba8;border:1px solid rgba(243,139,168,0.6);animation:pulse 1.5s infinite}
-.badge-suspect-low{background:rgba(249,226,175,0.2);color:#f9e2af;border:1px solid rgba(249,226,175,0.5)}
-.badge-suspect-med{background:rgba(250,179,135,0.2);color:#fab387;border:1px solid rgba(250,179,135,0.5)}
-.badge-src-live{background:rgba(166,227,161,0.15);color:#a6e3a1;border:1px solid rgba(166,227,161,0.4);font-size:9px;padding:2px 6px;border-radius:6px;display:inline-flex;align-items:center;gap:3px}
-.badge-src-api{background:rgba(137,180,250,0.12);color:#89b4fa;border:1px solid rgba(137,180,250,0.35);font-size:9px;padding:2px 6px;border-radius:6px;display:inline-flex;align-items:center;gap:3px}
-.member-row.suspect-high{border-color:rgba(243,139,168,0.55);background:linear-gradient(90deg,rgba(243,139,168,0.09),var(--card))}
-.member-row.suspect-low{border-color:rgba(249,226,175,0.35);background:linear-gradient(90deg,rgba(249,226,175,0.05),var(--card))}
-.member-row.suspect-med{border-color:rgba(250,179,135,0.4);background:linear-gradient(90deg,rgba(250,179,135,0.06),var(--card))}
-.suspect-filter-bar{display:flex;gap:6px;padding:6px 12px 4px;overflow-x:auto;flex-shrink:0}
-.suspect-filter-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text3);padding:4px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap;transition:all .2s}
-.suspect-filter-btn.active{background:rgba(240,165,0,0.15);border-color:rgba(240,165,0,0.5);color:var(--mauve)}
-.suspect-filter-btn.high.active{background:rgba(243,139,168,0.15);border-color:rgba(243,139,168,0.5);color:var(--red)}
-.suspect-clan-no-member{font-size:11px;color:var(--text3);padding:4px 0;font-style:italic}
-.suspect-reason{font-size:10px;color:var(--text3);margin-top:2px;line-height:1.3}
-.suspect-clan-card{background:var(--card);border:1px solid rgba(243,139,168,0.35);border-radius:12px;padding:10px 12px;margin:0 12px 8px;cursor:pointer;transition:all .2s}
-.suspect-clan-card:hover{border-color:var(--red)}
-.suspect-clan-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.suspect-clan-card-top h3{font-size:14px;font-weight:700;color:var(--text)}
-.suspect-member-row{display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)}
-.suspect-member-row:last-child{border-bottom:none}
-.sm-icon{font-size:14px;flex-shrink:0;padding-top:1px}
-.sm-info{flex:1;min-width:0}
-.sm-name{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sm-reason{font-size:11px;color:var(--text2);margin-top:1px}
-.sm-badge{flex-shrink:0}
-.how-it-works{margin:8px 12px 0;background:rgba(137,180,250,0.08);border:1px solid rgba(137,180,250,0.25);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--text2);line-height:1.6}
-.how-it-works strong{color:var(--blue)}
 /* EXPORT BUTTON */
 .export-btn{display:inline-flex;align-items:center;gap:5px;background:rgba(137,180,250,0.12);border:1px solid rgba(137,180,250,0.35);color:var(--blue);padding:5px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;transition:all .2s;white-space:nowrap}
 .export-btn:hover{background:rgba(137,180,250,0.22);border-color:rgba(137,180,250,0.6)}
@@ -411,39 +367,6 @@ body::before{
 #fb-status.connected{color:#a6e3a1;border-color:rgba(166,227,161,0.4);background:rgba(166,227,161,0.08)}
 #fb-status.disconnected{color:var(--text3);border-color:var(--border);background:transparent}
 #fb-status.error{color:#f38ba8;border-color:rgba(243,139,168,0.4);background:rgba(243,139,168,0.08)}
-/* DEDUCTION MEMBER LIST */
-.ded-members{margin-top:8px;border-top:1px solid var(--border);padding-top:6px;display:flex;flex-direction:column;gap:4px}
-.ded-member-row{display:flex;align-items:flex-start;gap:7px;font-size:11px;padding:3px 0}
-.ded-member-icon{flex-shrink:0;font-size:12px;padding-top:1px}
-.ded-member-info{flex:1;min-width:0}
-.ded-member-name{font-weight:600;color:var(--text);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ded-member-reason{color:var(--text3);font-size:10px;margin-top:1px;line-height:1.35}
-.ded-member-badge{flex-shrink:0;margin-top:1px}
-/* SUSPECT HISTORY */
-.suspect-history-header{padding:10px 12px 4px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.8px;border-top:1px solid var(--border);margin-top:8px}
-.suspect-hist-card{background:var(--card);border:1px solid rgba(243,139,168,0.25);border-radius:10px;padding:9px 11px;margin:0 12px 7px}
-.suspect-hist-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:5px}
-.suspect-hist-clan{font-size:12px;font-weight:700;color:var(--text)}
-.suspect-hist-ts{font-size:10px;color:var(--text3);text-align:right;flex-shrink:0;margin-left:8px}
-.suspect-hist-member{display:flex;align-items:flex-start;gap:6px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
-.suspect-hist-member:last-child{border-bottom:none}
-/* ACCUMULATED CHEAT HISTORY (detail view) */
-.detail-cheat-section-header{padding:10px 12px 4px;font-size:10px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:0.8px;border-top:1px solid var(--border);margin-top:4px}
-.collapsible-date-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 12px 5px;cursor:pointer;user-select:none;border-bottom:1px solid rgba(255,255,255,0.04)}
-.collapsible-date-hdr:hover{background:rgba(255,255,255,0.025)}
-.collapsible-date-label{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.8px}
-.collapsible-date-meta{font-size:10px;color:var(--text3)}
-.collapsible-chevron{font-size:9px;color:var(--text3);transition:transform .2s;display:inline-block}
-.collapsible-chevron.open{transform:rotate(90deg)}
-.collapsible-clan-hdr{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;margin:5px 12px 3px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer;user-select:none;gap:8px}
-.collapsible-clan-hdr:hover{border-color:var(--border2)}
-.collapsible-clan-hdr-name{font-size:12px;font-weight:700;color:var(--text)}
-.collapsible-clan-hdr-meta{font-size:10px;color:var(--text3);margin-top:1px}
-.member-cheat-row{background:var(--card);border:1px solid rgba(250,179,135,0.3);border-radius:8px;padding:7px 12px;margin:0 12px 5px}
-.mch-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.mch-name{font-size:13px;font-weight:600;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mch-total{font-size:13px;font-weight:700;color:var(--red);white-space:nowrap}
-.mch-meta{font-size:10px;color:var(--text3);margin-top:3px}
 
 /* ============================================================
    LOGIN SCREEN
@@ -806,36 +729,6 @@ body::before{
       <div id="history-list"></div>
     </div>
 
-    <!-- DEDUCTION HISTORY SCREEN -->
-    <div id="screen-deductions" class="screen">
-      <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;padding-right:12px">
-        <span>Clan Deduction History</span>
-        <button class="export-btn" onclick="downloadDeductions()" title="Export as .xlsx">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export .xlsx
-        </button>
-      </div>
-      <div id="deductions-list"></div>
-    </div>
-
-    <!-- SUSPECTS SCREEN -->
-    <div id="screen-suspects" class="screen">
-      <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;padding-right:12px">
-        <span>Cheater Suspects</span>
-        <button class="export-btn" onclick="downloadSuspects()" title="Export as .xlsx">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export .xlsx
-        </button>
-      </div>
-      <div class="how-it-works">
-        <strong>Confirmed suspect detection:</strong> A player is listed here only when their individual rep drop is caught live AND aligns exactly with their clan's anti-cheat deduction change &#8212; confirming they are the cheater.<br>
-        <strong style="color:var(--red)">&#128680; HIGH Suspicion</strong> = rep gain&#8594;drop caught live AND the total drop matches the clan's deduction change exactly.<br>
-        <span style="color:var(--text3)">Clan-level deduction history is shown in the <strong style="color:var(--mauve)">Deductions</strong> tab.</span>
-      </div>
-
-      <div id="suspects-list" style="margin-top:4px"></div>
-    </div>
-
     <!-- SETTINGS SCREEN -->
     <div id="screen-settings" class="screen">
       <div style="padding:0 0 80px">
@@ -900,20 +793,6 @@ body::before{
 
         <div class="settings-section" style="margin-top:10px">
           <div class="settings-section-title">Records</div>
-          <div class="settings-row">
-            <div>
-              <div class="settings-row-label">Local Records</div>
-              <div class="settings-row-sub">Clears all suspect &amp; deduction logs stored on this device</div>
-            </div>
-            <button class="btn-danger" onclick="confirmDeleteLocalRecords()">Delete Local Records</button>
-          </div>
-          <div class="settings-row" id="settings-firebase-row">
-            <div>
-              <div class="settings-row-label">Firebase Records</div>
-              <div class="settings-row-sub">Permanently deletes all suspect &amp; deduction logs from Firebase (affects all devices)</div>
-            </div>
-            <button class="btn-danger" onclick="confirmDeleteFirebaseRecords()">Delete Firebase Records</button>
-          </div>
           <div class="settings-row" id="settings-round-history-row">
             <div>
               <div class="settings-row-label">Round History</div>
@@ -935,56 +814,6 @@ body::before{
               &#128275; Exit Admin Level
             </button>
           </div>
-        </div>
-
-        <div class="settings-section" style="margin-top:10px;display:none" id="settings-season-archive-section">
-          <div class="settings-section-title">&#128203; Season Archive (Admin Only)</div>
-          <div class="settings-row">
-            <div>
-              <div class="settings-row-label">Archive &amp; Reset Season Data</div>
-              <div class="settings-row-sub">Consolidates all suspect &amp; deduction logs into a seasonal archive, then wipes the live collections for the new season.</div>
-            </div>
-          </div>
-          <div class="settings-btn-row" style="padding:0 14px 14px;flex-direction:column;gap:8px">
-            <button class="btn-danger" onclick="showArchiveSeasonModal()" style="background:rgba(243,139,168,0.12);border-color:rgba(243,139,168,0.4);color:var(--red)">
-              &#128220; Archive &amp; Reset Season Data
-            </button>
-            <button class="btn-primary" id="btn-download-season-report" onclick="downloadSeasonReport()" style="display:none;background:rgba(166,227,161,0.12);border:1px solid rgba(166,227,161,0.4);color:var(--green)">
-              &#11123; Download Seasonal Cheater Report
-            </button>
-          </div>
-        </div>
-
-        <div class="settings-section" style="margin-top:10px;display:none" id="settings-tracking-controls-section">
-          <div class="settings-section-title">&#9203; Tracking Controls (Admin Only)</div>
-          <div class="settings-row">
-            <div>
-              <div class="settings-row-label">Clan Deduction Tracking <span id="tracking-deduction-status" style="font-weight:700;margin-left:4px"></span></div>
-              <div class="settings-row-sub">Stops logging clan deduction changes (and the Firebase writes they cause) if the rankings API is misbehaving.</div>
-            </div>
-          </div>
-          <div class="settings-btn-row" style="padding:0 14px 10px">
-            <button class="btn-danger" id="btn-toggle-deduction-tracking" onclick="toggleDeductionTracking()">&#9209; Stop Deduction Tracking</button>
-          </div>
-          <div class="settings-row">
-            <div>
-              <div class="settings-row-label">Suspect Tracking <span id="tracking-suspect-status" style="font-weight:700;margin-left:4px"></span></div>
-              <div class="settings-row-sub">Stops logging cheater suspects (and the Firebase writes they cause) independently of deduction tracking.</div>
-            </div>
-          </div>
-          <div class="settings-btn-row" style="padding:0 14px 10px">
-            <button class="btn-danger" id="btn-toggle-suspect-tracking" onclick="toggleSuspectTracking()">&#9209; Stop Suspect Tracking</button>
-          </div>
-          <div class="settings-row">
-            <div>
-              <div class="settings-row-label">Both</div>
-              <div class="settings-row-sub">One tap to stop (or resume) both pipelines at once.</div>
-            </div>
-          </div>
-          <div class="settings-btn-row" style="padding:0 14px 14px">
-            <button class="btn-danger" id="btn-toggle-both-tracking" onclick="toggleBothTracking()">&#9209; Stop Both (Deduction + Suspect)</button>
-          </div>
-          <div class="settings-row-sub" style="padding:0 14px 12px">This pauses tracking for every open device, not just yours \u2014 the setting is shared and survives a server restart.</div>
         </div>
 
         <div class="settings-section" style="margin-top:10px;display:none" id="settings-season-start-section">
@@ -1105,14 +934,6 @@ body::before{
     <div class="tab" id="tab-events" onclick="showTab('events')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       <span>Events</span>
-    </div>
-    <div class="tab" id="tab-deductions" onclick="showTab('deductions')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-      <span>Deductions</span>
-    </div>
-    <div class="tab" id="tab-suspects" onclick="showTab('suspects')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v3"/><path d="M11 14h.01"/></svg>
-      <span>Suspects</span>
     </div>
     <div class="tab" id="tab-season-history" onclick="showTab('season-history')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/><circle cx="19" cy="9" r="1.5"/></svg>
@@ -1328,19 +1149,6 @@ const PUSH_PUBLIC_KEY_URL = '/api/push/public-key';
 const PUSH_SUBSCRIBE_URL = '/api/push/subscribe';
 const PUSH_CONFIRMED_URL = '/api/push/confirmed';
 
-// In-memory dedup set for suspectLog \u2014 rebuilt from storage on load
-// Prevents the same drop event being recorded twice across polls
-let suspectLogKeysSeen = new Set();
-
-// \u2500\u2500 Tracker pause switches (admin-controlled, server-authoritative) \u2500\u2500\u2500\u2500\u2500\u2500
-// Mirrors server.js's trackerPause. Synced on load via /api/tracker-snapshot
-// and kept live via the 'pauseState' tracker-stream event, so every open tab
-// (not just the admin's) reflects the current state immediately. When a flag
-// is true, this client stops detecting AND reporting that event type \u2014 the
-// server also refuses the write as a backstop, but skipping it here avoids
-// wasted network calls too.
-let trackerPause = { deductions: false, suspects: false };
-
 // \u2500\u2500 Access level \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 // 'normal' = default (Rankings, Risk Bleed, History, Settings only)
 // 'admin'  = full view (all tabs + Delete Firebase Records visible)
@@ -1371,8 +1179,7 @@ let seasonHistoryFetched = false; // loaded lazily on first Season History tab o
 let shOpenSeasonId       = null;  // which season card is currently expanded
 
 // Controls which action the shared password modal performs
-let pwModalMode = 'delete'; // 'delete' | 'access' | 'archive'
-let _lastSeasonArchive = null; // holds the last archived data for download
+let pwModalMode = 'access'; // 'access' | 'clearRounds'
 
 let state = {
   data: null,            // latest API response
@@ -1401,23 +1208,10 @@ let state = {
   // Key: clanId \u2192 [{amount, ts}, ...] \u2014 entries older than 5s are trimmed on write.
   // Used to compute the 5s accumulated change display during gaining-bleed status.
   clanRepEvents: {},
-  // Per-member peak reputation seen across ALL polls this round.
-  // Key: `${clanId}_${memberId}` \u2192 {peak, peakTs, dropAmount, dropTs, dropCount}
-  // dropAmount > 0 means the rep fell below its peak at some point \u2014 strong cheat signal.
-  // Reset to current rep at every round boundary so peaks don't bleed across rounds.
-  memberPeakRep: {},
   // Per-member rolling log of rep-gain event timestamps \u2014 reset each round.
   // Key: `${clanId}_${memberId}` \u2192 [ts, ts, ...] \u2014 ms epoch of each poll where rep went up.
   // Entries older than 15s are trimmed on every write. Drives bleed vs manual detection.
   memberGainEvents: {},
-  // Deduction change log \u2014 newest first, capped at 500 entries.
-  // Each entry: {clanId, clanName, clanRank, deduction, prevDeduction, change, ts, members:[]}
-  deductionLog: [],
-  // Persistent suspect event log \u2014 survives round rollovers \u2014 newest first, capped at 1000 entries.
-  // Each entry: {dedupKey, ts, clanId, clanName, clanRank, clanDeduction,
-  //              memberId, memberName, memberLevel, memberRep, peakRep,
-  //              dropAmount, dropCount, confidence, reason}
-  suspectLog: [],
 };
 
 // ── Confirmed bleed state (Firebase-synced, shared across all users) ─────────
@@ -1471,13 +1265,7 @@ function loadFromStorage() {
     if (saved.round) state.round = saved.round;
     if (saved.roundHistory) state.roundHistory = saved.roundHistory.slice(-100);
     if (saved.clanActivity) state.clanActivity = saved.clanActivity;
-    if (saved.memberPeakRep) state.memberPeakRep = saved.memberPeakRep;
     if (saved.memberGainEvents) state.memberGainEvents = saved.memberGainEvents;
-    if (saved.deductionLog) state.deductionLog = saved.deductionLog;
-    if (saved.suspectLog) {
-      state.suspectLog = saved.suspectLog;
-      for (const e of state.suspectLog) { suspectLogKeysSeen.add(e.dedupKey); }
-    }
     if (saved.lastFirestoreSync) state.lastFirestoreSync = saved.lastFirestoreSync;
     // dedupeBleedEventLog cleans up any entries already tripled by the old
     // backfill _id/id mismatch (see bleedEventKey) — self-heals on next load,
@@ -1493,10 +1281,7 @@ function saveToStorage() {
       round: state.round,
       roundHistory: state.roundHistory,
       clanActivity: state.clanActivity,
-      memberPeakRep: state.memberPeakRep,
       memberGainEvents: state.memberGainEvents,
-      deductionLog: state.deductionLog,
-      suspectLog: state.suspectLog,
       lastFirestoreSync: state.lastFirestoreSync,
       bleedEventLog: bleedEventLog,
     }));
@@ -1555,10 +1340,7 @@ async function fetchData(manual = false) {
     // regardless of whether reputation actually changed this tick.
     const roundRolledOver = updateRoundTracking();
     recordClanActivity(roundRolledOver);
-    recordMemberPeaks(roundRolledOver);
     recordMemberGainEvents(roundRolledOver);
-    recordDeductionChanges();
-    captureConfirmedSuspects();
 
     lastPollAt = Date.now();
 
@@ -1883,52 +1665,6 @@ function getClanDisplayActivity(clanId) {
   return getClanActivity(clanId);
 }
 
-// Per-member session peak tracking \u2014 MEMORY ONLY, no Firestore writes here.
-// The ACP first flags a member with a rep drop (preliminary signal) before the
-// official clan deduction is confirmed in the API. Writing to Firestore at flag
-// time wastes writes on unconfirmed events and records the wrong timestamp.
-// Suspects are only written to Firestore inside recordDeductionChanges() at the
-// exact moment the clan's official deduction value changes.
-function recordMemberPeaks(roundJustRolledOver) {
-  if (!state.data) return;
-  if (!state.memberPeakRep) state.memberPeakRep = {};
-
-  for (const clan of state.data.clans) {
-    for (const m of clan.member_list) {
-      const key = `${clan.id}_${m.id}`;
-      const entry = state.memberPeakRep[key];
-
-      if (roundJustRolledOver || !entry) {
-        // Start of a new round \u2014 reset baseline to current rep
-        state.memberPeakRep[key] = {
-          peak: m.reputation,
-          peakTs: Date.now(),
-          dropAmount: 0,
-          dropTs: null,
-          dropCount: 0,
-        };
-        continue;
-      }
-
-      if (m.reputation > entry.peak) {
-        // New high \u2014 update peak
-        state.memberPeakRep[key] = { ...entry, peak: m.reputation, peakTs: Date.now() };
-      } else if (entry.peak > 0 && m.reputation < entry.peak) {
-        // Rep fell below peak \u2014 ACP preliminary flag, stored in memory only.
-        // Firestore write happens in recordDeductionChanges() when official.
-        const dropAmount = entry.peak - m.reputation;
-        const newDropCount = (entry.dropCount || 0) + 1;
-        state.memberPeakRep[key] = {
-          ...entry,
-          dropAmount,
-          dropTs: Date.now(),
-          dropCount: newDropCount,
-        };
-      }
-    }
-  }
-}
-
 // Tracks, per member, the timestamps of every poll where their rep increased.
 // Reset at round start. Entries older than 15s are trimmed on write.
 // Drives the bleed-vs-manual detection logic in isClanBleeding().
@@ -1963,205 +1699,6 @@ function recordMemberGainEvents(roundJustRolledOver) {
   }
 }
 
-// Returns the peak-rep record for a specific member this round, or null.
-function getMemberPeak(clanId, memberId) {
-  if (!state.memberPeakRep) return null;
-  return state.memberPeakRep[`${clanId}_${memberId}`] || null;
-}
-
-// ============================================================
-// DEDUCTION CHANGE TRACKING
-// ============================================================
-// The upstream rankings API occasionally reports a clan's deduction value
-// incorrectly for a single poll cycle (a "flap") before it self-corrects on
-// the next poll. Logging every raw change 1:1 against the previous poll
-// meant every flap got written to the deduction log (and pushed to
-// Firestore for every open client) as if it were real, which is what made
-// deductions look like they were constantly firing. To filter that out, a
-// new value must show up on DEDUCTION_CONFIRM_STREAK consecutive polls
-// before it's treated as real and compared/logged against the last
-// CONFIRMED value (state.confirmedDeduction), not the last raw poll. A
-// one-off flap that reverts before reaching that streak is silently
-// dropped and never logged or reported.
-const DEDUCTION_CONFIRM_STREAK = 2; // consecutive polls a new value must hold before it's trusted
-
-// Called every poll when data changes. Compares each clan's deduction
-// value against the last CONFIRMED value and logs any change with a
-// timestamp, once that change has held for DEDUCTION_CONFIRM_STREAK polls.
-function recordDeductionChanges() {
-  if (!state.data || !state.prevData) return;
-  // Admin has paused clan deduction tracking (e.g. the upstream rankings API
-  // is flapping deduction values). Skip detection entirely \u2014 nothing is
-  // logged locally and nothing is reported to the server, so no Firestore
-  // writes happen for either the deduction log or the suspects it would have
-  // captured below.
-  if (trackerPause.deductions) return;
-  if (!state.deductionLog) state.deductionLog = [];
-  if (!state.confirmedDeduction) state.confirmedDeduction = {}; // clanId -> last trusted deduction value
-  if (!state.pendingDeduction) state.pendingDeduction = {};     // clanId -> { value, streak } candidate awaiting confirmation
-  const now = Date.now();
-  for (const clan of state.data.clans) {
-    const currDed = clan.deduction || 0;
-
-    // First time seeing this clan this session: seed the trusted baseline
-    // without logging a "change" (there's nothing to compare against yet).
-    if (!(clan.id in state.confirmedDeduction)) {
-      state.confirmedDeduction[clan.id] = currDed;
-      continue;
-    }
-
-    const confirmedDed = state.confirmedDeduction[clan.id];
-    if (currDed === confirmedDed) {
-      delete state.pendingDeduction[clan.id]; // matches the known-good value again \u2014 any pending flap resolved itself
-      continue;
-    }
-
-    // Value differs from what's currently trusted. Track it as a candidate
-    // rather than logging immediately \u2014 it needs to repeat before we
-    // believe it.
-    const pending = state.pendingDeduction[clan.id];
-    if (pending && pending.value === currDed) {
-      pending.streak++;
-    } else {
-      state.pendingDeduction[clan.id] = { value: currDed, streak: 1 };
-    }
-    if (state.pendingDeduction[clan.id].streak < DEDUCTION_CONFIRM_STREAK) continue; // not confirmed yet \u2014 could still be a flap
-
-    // Confirmed real change: compare against the last trusted value, log it,
-    // and move the trusted baseline forward.
-    const prevDed = confirmedDed;
-    state.confirmedDeduction[clan.id] = currDed;
-    delete state.pendingDeduction[clan.id];
-
-    state.deductionLog.unshift({
-      clanId:        clan.id,
-      clanName:      clan.name,
-      clanRank:      clan.rank,
-      deduction:     currDed,
-      prevDeduction: prevDed,
-      change:        currDed - prevDed,   // positive = deduction grew, negative = reduced
-      ts:            now,
-      // Snapshot of suspected cheater members at the exact moment this deduction was detected
-      members: getSuspectedCheaters(clan.id).map(s => ({
-        id: s.id, name: s.name, level: s.level, reputation: s.reputation,
-        confidence: s.confidence, dropAmount: s.dropAmount, dropCount: s.dropCount, reason: s.reason,
-      })),
-    });
-    // Push to Firebase so all devices see this deduction immediately
-    pushDeductionToFirestore(state.deductionLog[0]);
-
-    // Capture confirmed suspects at the official deduction moment.
-    // getSuspectedCheaters() uses all 5 detection signals (peak tracker, poll
-    // delta, round gain, rep reset) and returns suspects with suspicion levels
-    // already computed against the deduction change we just logged.
-    // Skipped independently when suspect tracking specifically is paused,
-    // even if deduction tracking itself is still active.
-    if (!trackerPause.suspects) {
-      if (!state.suspectLog) state.suspectLog = [];
-      const confirmedSuspects = getSuspectedCheaters(clan.id);
-      for (const s of confirmedSuspects) {
-        const peak = getMemberPeak(clan.id, s.id);
-        // Key aligns with the server-poller's dedupKey so both write to the same
-        // Firestore document (setDoc overwrites, no duplicates).
-        const dedupKey = (peak && peak.peak > 0)
-          ? `${clan.id}_${s.id}_${peak.peak}`
-          : `${clan.id}_${s.id}_ded${now}`;
-        if (suspectLogKeysSeen.has(dedupKey)) continue;
-        suspectLogKeysSeen.add(dedupKey);
-        const suspEntry = {
-          dedupKey,
-          ts:              now,   // timestamp of the OFFICIAL deduction event
-          clanId:          clan.id,
-          clanName:        clan.name,
-          clanRank:        clan.rank,
-          clanDeduction:   currDed,
-          memberId:        s.id,
-          memberName:      s.name,
-          memberLevel:     s.level,
-          memberRep:       s.reputation,
-          peakRep:         peak?.peak ?? s.reputation,
-          dropAmount:      s.dropAmount || 0,
-          dropCount:       s.dropCount  || 1,
-          confidence:      s.suspicionLevel === 'HIGH' ? 'HIGH' : 'MEDIUM',
-          suspicionLevel:  s.suspicionLevel  || 'LOW',
-          detectionSource: s.detectionSource || 'live',
-          reason:          s.reason,
-        };
-        state.suspectLog.unshift(suspEntry);
-        pushSuspectToFirestore(suspEntry);
-      }
-      if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
-    }
-  }
-  // Cap log at 500 entries (newest first)
-  if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
-}
-
-// Runs every poll to catch HIGH suspects whose rep drop appeared in a DIFFERENT
-// API poll than the clan's official deduction change. The Ninja Saga API can
-// deliver the deduction value and the individual member drop 5–10 s apart, so
-// recordDeductionChanges() (which only fires when the deduction value changes)
-// can miss them. This function covers the gap. The dedup key
-// (clanId_memberId_peak) prevents double-writes with recordDeductionChanges().
-function captureConfirmedSuspects() {
-  if (!state.data || !state.deductionLog || !state.deductionLog.length) return;
-  if (trackerPause.suspects) return; // admin has paused suspect tracking
-  if (!state.suspectLog) state.suspectLog = [];
-  const now = Date.now();
-  let anyAdded = false;
-
-  for (const clan of state.data.clans) {
-    // Only check clans that already have a logged deduction change this session.
-    const clanDedLog = state.deductionLog.filter(e => e.clanId === clan.id);
-    if (clanDedLog.length === 0) continue;
-
-    const confirmedSuspects = getSuspectedCheaters(clan.id);
-    for (const s of confirmedSuspects) {
-      if (s.suspicionLevel !== 'HIGH') continue;
-
-      const peak = getMemberPeak(clan.id, s.id);
-      const dedupKey = (peak && peak.peak > 0)
-        ? `${clan.id}_${s.id}_${peak.peak}`
-        : `${clan.id}_${s.id}_ded${now}`;
-
-      if (suspectLogKeysSeen.has(dedupKey)) continue;
-      suspectLogKeysSeen.add(dedupKey);
-
-      // Timestamp the entry to the deduction event it belongs to so it sorts
-      // alongside that event in the suspects tab (not to this later poll).
-      const latestDed = clanDedLog[0];
-      const suspEntry = {
-        dedupKey,
-        ts:              latestDed.ts,
-        clanId:          clan.id,
-        clanName:        clan.name,
-        clanRank:        clan.rank,
-        clanDeduction:   clan.deduction,
-        memberId:        s.id,
-        memberName:      s.name,
-        memberLevel:     s.level,
-        memberRep:       s.reputation,
-        peakRep:         peak?.peak ?? s.reputation,
-        dropAmount:      s.dropAmount || 0,
-        dropCount:       s.dropCount  || 1,
-        confidence:      'HIGH',
-        suspicionLevel:  'HIGH',
-        detectionSource: s.detectionSource || 'live',
-        reason:          s.reason,
-      };
-      state.suspectLog.unshift(suspEntry);
-      pushSuspectToFirestore(suspEntry);
-      anyAdded = true;
-    }
-  }
-
-  if (anyAdded) {
-    if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
-    saveToStorage();
-    updateSuspectsTabBadge();
-    if (state.currentTab === 'suspects') renderSuspects();
-  }
-}
 
 // Exact timestamp string: "07/21/2026 \u00B7 08:07:06 PM"
 function fmtDateTime(ts) {
@@ -2261,10 +1798,6 @@ function renderCurrentView() {
     renderHistory();
   } else if (t === 'weekly') {
     renderWeeklyGains();
-  } else if (t === 'deductions') {
-    renderDeductions();
-  } else if (t === 'suspects') {
-    renderSuspects();
   } else if (t === 'events') {
     renderEvents();
   } else if (t === 'season-history') {
@@ -2274,35 +1807,6 @@ function renderCurrentView() {
   }
   if (state.currentDetailClanId !== null) {
     renderDetail(state.currentDetailClanId);
-  }
-  updateSuspectsTabBadge();
-}
-
-function updateSuspectsTabBadge() {
-  const tab = document.getElementById('tab-suspects');
-  if (!tab || !state.data) return;
-
-  // Badge = individual players caught live THIS round only (not all-time history, not API clan counts)
-  const roundStartTs = state.round && state.round.startTs ? new Date(state.round.startTs).getTime() : 0;
-  const log = state.suspectLog || [];
-  const thisRound = log.filter(e => e.ts >= roundStartTs);
-  const caught = thisRound.length;
-  const highCount = thisRound.filter(e => (e.suspicionLevel || (e.confidence === 'HIGH' ? 'HIGH' : 'LOW')) === 'HIGH').length;
-
-  let badge = tab.querySelector('.tab-badge');
-  if (caught > 0) {
-    if (!badge) {
-      badge = document.createElement('span');
-      badge.className = 'tab-badge';
-      badge.style.cssText = 'position:absolute;top:6px;right:calc(50% - 14px);font-size:8px;font-weight:900;padding:1px 5px;border-radius:8px;min-width:14px;text-align:center';
-      tab.style.position = 'relative';
-      tab.appendChild(badge);
-    }
-    badge.textContent = caught;
-    badge.style.background = highCount > 0 ? 'var(--red)' : 'var(--green)';
-    badge.style.color = '#0a0a0a';
-  } else if (badge) {
-    badge.remove();
   }
 }
 
@@ -2404,7 +1908,6 @@ function renderRankings() {
     const deltaStr = changeDeltaHtml(activity);
 
     const repStr = fmtNum(clan.reputation);
-    const deductStr = (accessLevel === 'admin' && clan.deduction > 0) ? ` <span style="color:var(--red);font-size:10px">-${fmtNum(clan.deduction)}</span>` : '';
 
     // Bleed button — only shown when logged in
     // A clan counts as "active bleed this round" only if it was marked in the current round
@@ -2423,7 +1926,7 @@ function renderRankings() {
       <div class="clan-card-bottom">
         <div class="clan-stat">
           <div class="clan-stat-label">Reputation</div>
-          <div class="clan-stat-value">${repStr}${deductStr}</div>
+          <div class="clan-stat-value">${repStr}</div>
         </div>
         <div class="clan-stat">
           <div class="clan-stat-label">Change</div>
@@ -2554,46 +2057,15 @@ function renderDetail(clanId) {
     return db - da;
   });
 
-  // Build suspect map for this clan (admin only)
-  const suspectMap = {};
-  if (accessLevel === 'admin' && clan.deduction > 0) {
-    for (const s of getSuspectedCheaters(clan.id)) {
-      suspectMap[s.id] = s;
-    }
-  }
-
   document.getElementById('members-list').innerHTML = membersSorted.map(m => {
     const d     = getMemberRoundGain(clan.id, m.id);
-    const peak  = getMemberPeak(clan.id, m.id);
     const deltaHtml = d !== null
       ? `<span class="clan-delta ${d > 0 ? 'pos' : d < 0 ? 'neg' : 'neu'}">${d >= 0 ? '+' : ''}${fmtNum(d)}</span>`
       : '<span class="clan-delta neu">\u2014</span>';
 
-    // Peak indicator: show peak rep and drop amount if different from current
-    let peakHtml = '';
-    if (peak && peak.peak > m.reputation && peak.dropAmount > 0) {
-      peakHtml = `<div style="font-size:10px;color:var(--red);margin-top:1px">` +
-                 `peak ${fmtNum(peak.peak)} \u2192 -${fmtNum(peak.dropAmount)}` +
-                 (peak.dropCount > 1 ? ` (${peak.dropCount}\u00D7)` : '') +
-                 `</div>`;
-    }
-
-    const suspect = suspectMap[m.id];
-    let rowClass = 'member-row';
-    let suspectBadge = '';
-    let suspectReason = '';
-    if (suspect) {
-      rowClass += suspect.confidence === 'HIGH' ? ' suspect-high' : ' suspect-med';
-      const badgeCls   = suspect.confidence === 'HIGH' ? 'badge-suspect-high' : 'badge-suspect-med';
-      const badgeLabel = suspect.confidence === 'HIGH'  ? '\u{1F6A8} SUSPECT' : '\u26A0 SUSPECT?';
-      suspectBadge  = `<span class="badge ${badgeCls}" style="margin-left:6px;font-size:9px">${badgeLabel}</span>`;
-      suspectReason = `<div class="suspect-reason">${esc(suspect.reason)}</div>`;
-    }
-    return `<div class="${rowClass}">
+    return `<div class="member-row">
       <div class="m-name" style="display:flex;flex-direction:column">
-        <span>${esc(m.name)}${suspectBadge}</span>
-        ${suspectReason}
-        ${peakHtml}
+        <span>${esc(m.name)}</span>
       </div>
       <div class="m-level">${m.level}</div>
       <div class="m-rep">${fmtNum(m.reputation)}</div>
@@ -2601,1001 +2073,15 @@ function renderDetail(clanId) {
     </div>`;
   }).join('');
 
-  // \u2500\u2500 Accumulated anti-cheat history from suspect log (admin only) \u2500\u2500
-  const cheatHistEl = document.getElementById('detail-cheat-history');
-  if (accessLevel !== 'admin') { cheatHistEl.innerHTML = ''; }
-  else {
-  const clanSuspectHistory = (state.suspectLog || []).filter(s => s.clanId === clan.id);
-  if (clanSuspectHistory.length > 0) {
-    // Aggregate per member: sum all unique drop events (dedupKey guarantees no duplicates)
-    const memberTotals = {};
-    for (const s of clanSuspectHistory) {
-      const key = String(s.memberId);
-      if (!memberTotals[key]) {
-        memberTotals[key] = {
-          id: s.memberId, name: s.memberName, level: s.memberLevel,
-          totalDrop: 0, events: 0, firstTs: s.ts, lastTs: s.ts
-        };
-      }
-      memberTotals[key].totalDrop += s.dropAmount || 0;
-      memberTotals[key].events++;
-      if (s.ts < memberTotals[key].firstTs) memberTotals[key].firstTs = s.ts;
-      if (s.ts > memberTotals[key].lastTs)  memberTotals[key].lastTs  = s.ts;
-    }
-    const sorted = Object.values(memberTotals).sort((a, b) => b.totalDrop - a.totalDrop);
-    const totalDeducted = sorted.reduce((n, m) => n + m.totalDrop, 0);
-
-    let histHtml = `<div class="detail-cheat-section-header">
-      \u26A0 ANTI-CHEAT HISTORY \u2014 SEASON TO DATE
-      <span style="font-weight:400;color:var(--text3);margin-left:6px;text-transform:none;letter-spacing:0;font-size:10px">
-        ${sorted.length} member${sorted.length !== 1 ? 's' : ''} caught \u00B7 ${fmtNum(clanSuspectHistory.length)} total event${clanSuspectHistory.length !== 1 ? 's' : ''}
-      </span>
-    </div>
-    <div style="margin:0 12px 6px;font-size:11px;color:var(--text3)">
-      Accumulated deductions tracked this session \u2014 stays until records are cleared. Persists across polls but resets if session data is wiped.
-    </div>`;
-
-    for (const m of sorted) {
-      const firstStr = new Date(m.firstTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      const lastStr  = new Date(m.lastTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      const sameTime = m.firstTs === m.lastTs;
-      histHtml += `<div class="member-cheat-row">
-        <div class="mch-top">
-          <div class="mch-name">${esc(m.name)} <span style="font-size:10px;font-weight:400;color:var(--text3)">Lv ${m.level}</span></div>
-          <div class="mch-total">-${fmtNum(m.totalDrop)}</div>
-        </div>
-        <div class="mch-meta">
-          ${m.events} reversal${m.events !== 1 ? 's' : ''} caught
-          \u00B7 <span style="color:var(--text2)">first: ${firstStr}</span>
-          ${!sameTime ? `\u00B7 <span style="color:var(--text2)">last: ${lastStr}</span>` : ''}
-        </div>
-      </div>`;
-    }
-    cheatHistEl.innerHTML = histHtml;
-  } else {
-    // No history: only show a note if the clan has any deductions at all
-    if (clan.deduction > 0) {
-      cheatHistEl.innerHTML = `<div class="detail-cheat-section-header">\u26A0 ANTI-CHEAT HISTORY</div>
-        <div style="margin:0 12px 8px;font-size:11px;color:var(--text3)">
-          No individual member events recorded yet this session. History builds up as the tracker catches reversals live.
-        </div>`;
-    } else {
-      cheatHistEl.innerHTML = '';
-    }
-  } // end clanSuspectHistory block
-  } // end admin-only anti-cheat block
+  document.getElementById('detail-cheat-history').innerHTML = '';
 }
-
-// ============================================================
-// CHEATER DETECTION
-// ============================================================
-// Returns the most recent clan deduction CHANGE (not the total) for a given clan.
-// Example: if clan went from -244 to -268, this returns +24.
-// Returns null if no deduction change has been logged.
-function getLatestClanDeductionChange(clanId) {
-  const clanDedLog = (state.deductionLog || []).filter(e => e.clanId === clanId);
-  if (clanDedLog.length === 0) return null;
-  return clanDedLog[0].change; // most recent change (positive = deduction grew)
-}
-
-// Returns array of suspected cheater members for a given clan.
-// Works for ANY clan with clan.deduction > 0 \u2014 from API data alone if needed.
-//
-// Detection signals (all caught "live" via the tracker's 5s polling):
-//   SIGNAL 1 \u2014 session peak tracker caught a rep spike that was later reversed
-//   SIGNAL 2 \u2014 rep dropped between the two most recent polls
-//   SIGNAL 3 \u2014 net round gain is negative (reversal within the round window)
-//   SIGNAL 4 \u2014 rep was >0 at round start, now exactly 0 (hard reset)
-//   SIGNAL 5 \u2014 rep lower than round start but drop not caught live (API-inferred)
-//
-// Suspicion levels (new, replacing old HIGH/MEDIUM confidence):
-//   HIGH \u2014 individual member rep drop was caught live AND the TOTAL drops for
-//           all caught members exactly match the clan's latest deduction change.
-//           e.g. clan went from -244 \u2192 -268 (change = 24), member drops sum to 24 \u2192 HIGH.
-//   LOW  \u2014 rep gain\u2192drop detected live but total doesn't align with clan deduction change,
-//           OR the drop was inferred from API alone (not caught live).
-//
-// detectionSource:
-//   'live' \u2014 tracker's polling directly observed the rep gain and subsequent drop
-//   'api'  \u2014 only inferred from clan.deduction > 0 with no live member event caught
-function getSuspectedCheaters(clanId) {
-  const clan = getClanById(clanId);
-  if (!clan || !clan.deduction || clan.deduction <= 0) return [];
-
-  const latestChange = getLatestClanDeductionChange(clanId); // e.g. 24
-  const suspects = [];
-  const startEntry = state.round.startSnap ? state.round.startSnap[clanId] : null;
-  const seen = new Set();
-
-  for (const m of clan.member_list) {
-    const startRep  = startEntry?.members ? startEntry.members[m.id] : undefined;
-    const roundGain = getMemberRoundGain(clanId, m.id);
-    const pollDelta = getMemberDelta(clanId, m.id);
-    const peak      = getMemberPeak(clanId, m.id);
-
-    let detectionSource = null;
-    let dropAmount = 0;
-    let dropCount  = 0;
-    let dropTs     = null;
-    let reason     = '';
-
-    // \u2500\u2500 SIGNAL 1: peak tracker caught a transient rep spike that later dropped \u2500\u2500
-    if (peak && peak.dropAmount > 0 && peak.dropTs !== null && !seen.has(m.id)) {
-      detectionSource = 'live';
-      dropAmount = peak.dropAmount;
-      dropCount  = peak.dropCount;
-      dropTs     = peak.dropTs;
-      reason     = `Session peak was ${fmtNum(peak.peak)} \u2014 rep dropped by ${fmtNum(peak.dropAmount)} \u2014 anti-cheat reversed a cheated win mid-session`;
-
-    // \u2500\u2500 SIGNAL 2: rep dropped between the two most recent polls \u2500\u2500
-    } else if (pollDelta !== null && pollDelta < 0 && !seen.has(m.id)) {
-      detectionSource = 'live';
-      dropAmount = Math.abs(pollDelta);
-      dropCount  = 1;
-      reason     = `Rep just dropped ${fmtNum(pollDelta)} between the last two polls \u2014 caught the anti-cheat reversal live`;
-
-    // \u2500\u2500 SIGNAL 3: net round gain is negative \u2500\u2500
-    } else if (roundGain !== null && roundGain < 0 && !seen.has(m.id)) {
-      detectionSource = 'live';
-      dropAmount = Math.abs(roundGain);
-      dropCount  = 1;
-      reason     = `Rep is down ${fmtNum(roundGain)} since round start \u2014 cheated win flagged and gain reversed within this round`;
-
-    // \u2500\u2500 SIGNAL 4: was >0 at round start, now exactly 0 \u2014 hard reset \u2500\u2500
-    } else if (startRep !== undefined && startRep > 0 && m.reputation === 0 && !seen.has(m.id)) {
-      detectionSource = 'live';
-      dropAmount = startRep;
-      dropCount  = 1;
-      reason     = `Rep reset from ${fmtNum(startRep)} \u2192 0 this round while clan took a ${fmtNum(clan.deduction)} anti-cheat deduction`;
-
-    } else {
-      continue; // no signal for this member
-    }
-
-    seen.add(m.id);
-    suspects.push({ ...m, detectionSource, dropAmount, dropCount, dropTs, reason,
-                    suspicionLevel: null /* assigned below */ });
-  }
-
-  // \u2500\u2500 Assign suspicion levels \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-  // HIGH: sum of all live-caught drops == latest clan deduction change (lined up exactly).
-  // LOW:  live catch but not aligned, or only API-inferred.
-  const totalLiveDrops = suspects
-    .filter(s => s.detectionSource === 'live')
-    .reduce((n, s) => n + (s.dropAmount || 0), 0);
-  const isAligned = latestChange !== null && latestChange > 0 && totalLiveDrops === latestChange;
-
-  for (const s of suspects) {
-    if (s.detectionSource === 'live' && isAligned) {
-      s.suspicionLevel = 'HIGH';
-    } else {
-      s.suspicionLevel = 'LOW';
-    }
-    // Keep legacy confidence field for backward-compat with suspectLog rendering
-    s.confidence = s.suspicionLevel === 'HIGH' ? 'HIGH' : 'MEDIUM';
-  }
-
-  // Sort: HIGH first, then by largest drop
-  suspects.sort((a, b) => {
-    if (a.suspicionLevel !== b.suspicionLevel) return a.suspicionLevel === 'HIGH' ? -1 : 1;
-    return (b.dropAmount || 0) - (a.dropAmount || 0);
-  });
-
-  return suspects;
-}
-
-// Returns ALL clans with API deductions (with or without live member catches).
-// Used by the suspects tab so every deducted clan appears, classified by source.
-function getAllClanDeductions() {
-  if (!state.data) return [];
-  const results = [];
-  for (const clan of state.data.clans) {
-    if (!clan.deduction || clan.deduction <= 0) continue;
-    const suspects = getSuspectedCheaters(clan.id);
-    // Determine the overall source for the clan card
-    const hasLive = suspects.some(s => s.detectionSource === 'live');
-    const clanSource = hasLive ? 'live' : 'api';
-    results.push({ clan, suspects, clanSource });
-  }
-  return results;
-}
-
-// All clans that have at least one detected suspect (used for tab badge)
-function getAllSuspects() {
-  if (!state.data) return [];
-  const results = [];
-  for (const clan of state.data.clans) {
-    if (!clan.deduction || clan.deduction <= 0) continue;
-    const suspects = getSuspectedCheaters(clan.id);
-    if (suspects.length > 0) {
-      results.push({ clan, suspects });
-    }
-  }
-  return results;
-}
-
-function downloadSuspects() {
-  if (accessLevel !== 'admin') return;
-  const now = new Date();
-  const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-  const generatedAt = now.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-                    + ' \u00B7 ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-  function legacyToSuspicion(e) {
-    return e.suspicionLevel || (e.confidence === 'HIGH' ? 'HIGH' : 'LOW');
-  }
-
-  const wb = XLSX.utils.book_new();
-  const log = state.suspectLog || [];
-  const rows = [];
-
-  rows.push(['INDIVIDUAL CHEATER SUSPECTS \u2014 History (All Rounds)', '', '', '', '', '', '', '', '', '', '', '', '']);
-  rows.push([`Generated: ${generatedAt}`, '', '', '', '', '', '', '', '', '', '', '', '']);
-  rows.push(['Suspicion Level: HIGH = rep drop caught live AND aligned exactly with clan deduction change \u2014 confirmed cheater', '', '', '', '', '', '', '', '', '', '', '', '']);
-  rows.push(['Detection Source: Caught Live = tracker observed rep gain\u2192drop | API Based = inferred from API', '', '', '', '', '', '', '', '', '', '', '', '']);
-  rows.push([]);
-
-  if (log.length === 0) {
-    rows.push(['No individual suspect events recorded yet.']);
-  } else {
-    rows.push([
-      'Date', 'Time', 'Clan Name', 'Clan Rank', 'Clan Deduction at Event',
-      'Member Name', 'Level', 'Rep at Event', 'Session Peak Rep',
-      'Rep Drop', 'Drop Count', 'Suspicion Level', 'Detection Source', 'Detection Reason'
-    ]);
-    for (const e of log) {
-      const d = new Date(e.ts);
-      rows.push([
-        d.toLocaleDateString([], { year: 'numeric', month: '2-digit', day: '2-digit' }),
-        d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        e.clanName, e.clanRank, e.clanDeduction,
-        e.memberName, e.memberLevel, e.memberRep, e.peakRep || '',
-        e.dropAmount || 0, e.dropCount || 1,
-        legacyToSuspicion(e),
-        (e.detectionSource || 'live') === 'live' ? 'Caught Live' : 'API Based',
-        e.reason,
-      ]);
-    }
-  }
-
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [14, 12, 28, 10, 24, 22, 8, 14, 16, 10, 12, 16, 14, 60].map(w => ({ wch: w }));
-  XLSX.utils.book_append_sheet(wb, ws, 'Suspect History');
-  XLSX.writeFile(wb, `suspects_${stamp}.xlsx`);
-}
-
-function downloadDeductions() {
-  if (accessLevel !== 'admin') return;
-  const now    = new Date();
-  const stamp  = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-  const generatedAt = now.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-                    + ' \u00B7 ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-  function fmtTs(ts) {
-    const d = new Date(ts);
-    return d.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })
-         + ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  }
-
-  const wb = XLSX.utils.book_new();
-  const suspectLog = state.suspectLog || [];
-  const dedLog     = state.deductionLog || [];
-
-  // \u2500\u2500 Sheet 1 (default): Current API Deduction State \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-  const apiRows = [];
-  apiRows.push(['CLAN DEDUCTION \u2014 Current API State', '', '', '', '', '', '', '', '', '', '', '', '']);
-  apiRows.push([`Generated: ${generatedAt}`, '', '', '', '', '', '', '', '', '', '', '', '']);
-  apiRows.push(['Clan Source: Caught Live = tracker observed rep drop | API Based = only from API', '', '', '', '', '', '', '', '', '', '', '', '']);
-  apiRows.push(['Alignment: individual live rep drops == clan deduction change \u2192 lined up', '', '', '', '', '', '', '', '', '', '', '', '']);
-  apiRows.push([]);
-
-  if (state.data) {
-    const allDed = getAllClanDeductions();
-    if (allDed.length === 0) {
-      apiRows.push(['No clans currently have anti-cheat deductions.']);
-    } else {
-      apiRows.push([
-        'Clan Name', 'Clan Rank', 'API Deduction Total', 'Deduction Change', 'Previous Deduction',
-        'Clan Source', 'Member Name', 'Level', 'Current Rep',
-        'Suspicion Level', 'Member Source', 'Rep Drop', 'Aligned?', 'Detection Reason'
-      ]);
-      for (const { clan, suspects, clanSource } of allDed) {
-        const clanDedLog = dedLog.filter(e => e.clanId === clan.id);
-        const latestDed  = clanDedLog[0] || null;
-        const latestChange = latestDed ? latestDed.change : '';
-        const prevDedVal   = latestDed ? latestDed.prevDeduction : '';
-        const liveMemberDrops = suspects.filter(s => s.detectionSource === 'live').reduce((n, s) => n + (s.dropAmount || 0), 0);
-        const isAligned = latestChange !== '' && latestChange > 0 && liveMemberDrops === latestChange;
-        if (suspects.length === 0) {
-          apiRows.push([
-            clan.name, clan.rank, clan.deduction, latestChange || '', prevDedVal || '',
-            'API Based', '(no member events caught)', '', '', '', '', '', '', ''
-          ]);
-        } else {
-          for (const s of suspects) {
-            apiRows.push([
-              clan.name, clan.rank, clan.deduction, latestChange || '', prevDedVal || '',
-              clanSource === 'live' ? 'Caught Live' : 'API Based',
-              s.name, s.level, s.reputation,
-              s.suspicionLevel || 'LOW',
-              s.detectionSource === 'live' ? 'Caught Live' : 'API Based',
-              s.dropAmount || 0,
-              isAligned ? 'YES' : 'NO',
-              s.reason,
-            ]);
-          }
-        }
-      }
-    }
-  } else {
-    apiRows.push(['No API data loaded yet.']);
-  }
-  const wsApi = XLSX.utils.aoa_to_sheet(apiRows);
-  wsApi['!cols'] = [28, 10, 22, 16, 18, 14, 22, 8, 12, 16, 14, 10, 10, 60].map(w => ({ wch: w }));
-
-  // \u2500\u2500 Sheet 2: Deduction Change Log (timestamped events) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-  const logRows = [];
-  logRows.push(['CLAN DEDUCTION \u2014 Change Log (timestamped events)', '', '', '', '']);
-  logRows.push([`Generated: ${generatedAt}`, '', '', '', '']);
-  logRows.push([]);
-
-  if (dedLog.length === 0 && suspectLog.length === 0) {
-    logRows.push(['No deduction history recorded yet.']);
-  } else {
-    const clanMeta = {};
-    for (const e of dedLog) {
-      if (!clanMeta[e.clanId] || e.deduction > clanMeta[e.clanId].currentDeduction) {
-        clanMeta[e.clanId] = { name: e.clanName, rank: e.clanRank, currentDeduction: e.deduction };
-      }
-    }
-    const suspectByClan = {};
-    for (const s of suspectLog) {
-      const key = String(s.clanId);
-      if (!suspectByClan[key]) suspectByClan[key] = [];
-      suspectByClan[key].push(s);
-    }
-    for (const e of dedLog) {
-      const key = String(e.clanId);
-      if (!suspectByClan[key]) suspectByClan[key] = [];
-    }
-    const sortedClanIds = Object.keys(clanMeta).sort(
-      (a, b) => (clanMeta[b]?.currentDeduction || 0) - (clanMeta[a]?.currentDeduction || 0)
-    );
-    for (const clanId of sortedClanIds) {
-      const meta    = clanMeta[clanId];
-      const entries = suspectByClan[clanId] || [];
-      let firstTs = null, lastTs = null;
-      for (const s of entries) {
-        if (firstTs === null || s.ts < firstTs) firstTs = s.ts;
-        if (lastTs  === null || s.ts > lastTs)  lastTs  = s.ts;
-      }
-      if (firstTs === null) {
-        const cde = dedLog.filter(e => String(e.clanId) === clanId);
-        for (const e of cde) {
-          if (firstTs === null || e.ts < firstTs) firstTs = e.ts;
-          if (lastTs  === null || e.ts > lastTs)  lastTs  = e.ts;
-        }
-      }
-      const dateRange = firstTs
-        ? (firstTs === lastTs ? fmtTs(firstTs) : `${fmtTs(firstTs)}  \u2013  ${fmtTs(lastTs)}`)
-        : '\u2014';
-      logRows.push([`${meta.name}  \u00B7  Rank #${meta.rank}`, '', dateRange, '', '']);
-      if (entries.length === 0) {
-        logRows.push(['', 'Cheating Clan Members', '(no individual events recorded yet)', '', '']);
-        logRows.push(['', 'Total Reputation Deducted', '', `-${fmtNum(meta.currentDeduction)}`, '']);
-        logRows.push([]);
-        continue;
-      }
-      const memberMap = {};
-      for (const s of entries) {
-        const key = String(s.memberId);
-        if (!memberMap[key]) memberMap[key] = { name: s.memberName, level: s.memberLevel, events: [] };
-        memberMap[key].events.push({ drop: s.dropAmount || 0, ts: s.ts });
-      }
-      for (const m of Object.values(memberMap)) m.events.sort((a, b) => a.ts - b.ts);
-      const sortedMembers = Object.values(memberMap).sort((a, b) => {
-        const totA = a.events.reduce((n, e) => n + e.drop, 0);
-        const totB = b.events.reduce((n, e) => n + e.drop, 0);
-        return totB - totA;
-      });
-      logRows.push(['', 'Cheating Clan Members', '', '', '']);
-      for (const m of sortedMembers) {
-        for (let i = 0; i < m.events.length; i++) {
-          const ev = m.events[i];
-          logRows.push([
-            '', i === 0 ? m.name : '', `Lv ${m.level}`,
-            ev.drop > 0 ? `-${fmtNum(ev.drop)} rep deducted` : '(no rep drop recorded)',
-            fmtTs(ev.ts)
-          ]);
-        }
-      }
-      logRows.push(['', 'Total Reputation Deducted', '', `-${fmtNum(meta.currentDeduction)}`, '']);
-      logRows.push([]); logRows.push([]);
-    }
-  }
-  const wsLog = XLSX.utils.aoa_to_sheet(logRows);
-  wsLog['!cols'] = [{ wch: 2 }, { wch: 28 }, { wch: 10 }, { wch: 24 }, { wch: 26 }];
-
-  XLSX.utils.book_append_sheet(wb, wsApi, 'Current API State');  // opens first
-  XLSX.utils.book_append_sheet(wb, wsLog, 'Deduction History');
-  XLSX.writeFile(wb, `deductions_${stamp}.xlsx`);
-}
-
-function renderSuspects() {
-  const container = document.getElementById('suspects-list');
-  if (!state.data) {
-    container.innerHTML = `<div class="empty-state">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <h3>No data yet</h3><p>Waiting for the first fetch to complete.</p></div>`;
-    return;
-  }
-
-  // Only show HIGH suspects: live rep drop that aligns exactly with clan deduction change
-  const log = (state.suspectLog || []).filter(e =>
-    (e.suspicionLevel || (e.confidence === 'HIGH' ? 'HIGH' : '')) === 'HIGH'
-  );
-
-  if (log.length === 0) {
-    const deductedClans = state.data.clans.filter(c => c.deduction > 0).length;
-    const msg = deductedClans > 0
-      ? `${deductedClans} clan${deductedClans !== 1 ? 's have' : ' has'} anti-cheat deductions but no confirmed suspects yet. A suspect is confirmed when a live rep drop exactly matches the clan\u2019s deduction change. Keep the tracker open \u2014 events are caught automatically.`
-      : 'No clans have anti-cheat deductions. Nothing to investigate.';
-    container.innerHTML = `<div class="empty-state">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <h3>No Confirmed Suspects Yet</h3><p>${msg}</p></div>`;
-    return;
-  }
-
-  let html = `<div style="margin:0 12px 10px;font-size:11px;color:var(--text3)">
-    <span style="color:var(--red);font-weight:700">${log.length} HIGH</span> confirmed suspect${log.length !== 1 ? 's' : ''} \u2014 rep drop caught live and aligned exactly with clan deduction change
-  </div>`;
-
-  // ── OUR CLAN section (Hidden Cloud — always shown first) ─────────────
-  {
-    const ourEntries = log.filter(e => e.clanId === PERMANENT_CLAN_ID);
-    const hcClan = state.data ? state.data.clans.find(c => c.id === PERMANENT_CLAN_ID) : null;
-    const hcName = hcClan ? hcClan.name : 'Hidden Cloud Village';
-    const ourDateMap = new Map();
-    for (const e of ourEntries) {
-      const dateLabel = new Date(e.ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-      if (!ourDateMap.has(dateLabel)) ourDateMap.set(dateLabel, []);
-      ourDateMap.get(dateLabel).push(e);
-    }
-    const metaText = ourEntries.length === 0
-      ? 'no confirmed suspects'
-      : `${ourDateMap.size} date${ourDateMap.size !== 1 ? 's' : ''} \u00B7 ${ourEntries.length} suspect${ourEntries.length !== 1 ? 's' : ''}`;
-    html += `<div class="collapsible-date-hdr" onclick="toggleSuspOurClan()" style="margin-bottom:4px;border-color:rgba(251,191,36,0.45);background:rgba(251,191,36,0.06)">
-      <span class="collapsible-date-label" style="color:var(--amber)">&#127968; Our Clan \u2014 ${esc(hcName)}</span>
-      <span style="display:flex;align-items:center;gap:8px">
-        <span class="collapsible-date-meta">${metaText}</span>
-        <span class="collapsible-chevron${suspOurClanOpen ? ' open' : ''}" id="susp-ourclan-chev">&#9658;</span>
-      </span>
-    </div>
-    <div id="susp-ourclan-body"${suspOurClanOpen ? '' : ' style="display:none"'}>`;
-    if (ourEntries.length === 0) {
-      html += `<div style="padding:10px 14px;font-size:11px;color:var(--text3);font-style:italic">No confirmed suspects recorded for our clan yet.</div>`;
-    } else {
-      let odi = 0;
-      for (const [dateLabel, entries] of ourDateMap) {
-        const dateIsOpen    = suspOurClanOpenDates.has(dateLabel);
-        const dateSectionId = `susp-ourclan-date-body-${odi}`;
-        const dateChevrId   = `susp-ourclan-date-chev-${odi}`;
-        const safeDateKey   = dateLabel.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        html += `<div class="collapsible-clan-hdr" onclick="toggleSuspOurClanDate('${safeDateKey}','${dateSectionId}','${dateChevrId}')">
-          <div style="flex:1;min-width:0">
-            <div class="collapsible-clan-hdr-name">${esc(dateLabel)}</div>
-            <div class="collapsible-clan-hdr-meta">${entries.length} suspect${entries.length !== 1 ? 's' : ''}</div>
-          </div>
-          <span class="collapsible-chevron${dateIsOpen ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
-        </div>
-        <div id="${dateSectionId}"${dateIsOpen ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
-        for (const e of entries) {
-          const srcTag   = `<span style="font-size:9px;color:#a6e3a1;background:rgba(166,227,161,0.12);border:1px solid rgba(166,227,161,0.3);padding:1px 5px;border-radius:5px">\u{1F7E2} Live</span>`;
-          const dropLine = e.dropAmount > 0
-            ? `<span style="color:var(--red);font-size:10px;margin-left:4px">\u2212${fmtNum(e.dropAmount)}${e.dropCount > 1 ? ` (${e.dropCount}\u00D7)` : ''}</span>` : '';
-          const detectedAt = e.dropTs
-            ? new Date(e.dropTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-            : new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          html += `<div class="suspect-hist-card" style="margin-bottom:5px">
-            <div class="suspect-hist-top">
-              <div style="flex:1;min-width:0">
-                <div style="font-size:10px;color:var(--text3)">${srcTag}&nbsp; ${detectedAt} \u00B7 ${fmtAgo(e.ts)}</div>
-              </div>
-              <div class="sm-badge"><span class="badge badge-suspect-high" style="font-size:9px">HIGH</span></div>
-            </div>
-            <div class="suspect-hist-member" style="margin-top:5px;border-bottom:none">
-              <div class="sm-icon">\u{1F6A8}</div>
-              <div class="sm-info">
-                <div class="sm-name">${esc(e.memberName)}
-                  <span style="font-size:10px;color:var(--text3)">Lv ${e.memberLevel} \u00B7 Rep ${fmtNum(e.memberRep)}${dropLine}</span>
-                </div>
-                <div class="sm-reason">${esc(e.reason)}</div>
-              </div>
-            </div>
-          </div>`;
-        }
-        html += `</div>`; // end date body
-        odi++;
-      }
-    }
-    html += `</div>`; // end ourclan body
-  }
-
-  // Group by date → clan
-  const dateMap = new Map();
-  for (const e of log) {
-    const dateLabel = new Date(e.ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    if (!dateMap.has(dateLabel)) dateMap.set(dateLabel, new Map());
-    const clanMap = dateMap.get(dateLabel);
-    if (!clanMap.has(e.clanId)) clanMap.set(e.clanId, { clanName: e.clanName, clanRank: e.clanRank, clanDeduction: e.clanDeduction, entries: [] });
-    clanMap.get(e.clanId).entries.push(e);
-  }
-
-  let di = 0;
-  for (const [dateLabel, clanMap] of dateMap) {
-    const totalSuspects = [...clanMap.values()].reduce((n, c) => n + c.entries.length, 0);
-    const dateIsOpen    = suspectOpenDates.has(dateLabel);
-    const dateSectionId = `susp-date-body-${di}`;
-    const dateChevrId   = `susp-date-chev-${di}`;
-    const safeDateKey   = dateLabel.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    html += `<div class="collapsible-date-hdr" onclick="toggleSuspectDate('${safeDateKey}','${dateSectionId}','${dateChevrId}')">
-      <span class="collapsible-date-label">${esc(dateLabel)}</span>
-      <span style="display:flex;align-items:center;gap:8px">
-        <span class="collapsible-date-meta">${clanMap.size} clan${clanMap.size !== 1 ? 's' : ''} &middot; ${totalSuspects} suspect${totalSuspects !== 1 ? 's' : ''}</span>
-        <span class="collapsible-chevron${dateIsOpen ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
-      </span>
-    </div>
-    <div id="${dateSectionId}"${dateIsOpen ? '' : ' style="display:none"'}>`;
-
-    let ci = 0;
-    for (const [clanId, clan] of clanMap) {
-      const clanBodyId  = `susp-clan-body-${di}-${ci}`;
-      const clanChevrId = `susp-clan-chev-${di}-${ci}`;
-      const clanKey     = `${dateLabel}::${clanId}`;
-      const safeClanKey = clanKey.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      const clanIsOpen  = suspectOpenClans.has(clanKey);
-      html += `<div class="collapsible-clan-hdr" onclick="toggleSuspectClan('${safeClanKey}','${clanBodyId}','${clanChevrId}')">
-        <div style="flex:1;min-width:0">
-          <div class="collapsible-clan-hdr-name">${esc(clan.clanName)} <span style="font-size:10px;color:var(--text3);font-weight:400">#${clan.clanRank}</span></div>
-          <div class="collapsible-clan-hdr-meta">Deduction: <span style="color:var(--red);font-weight:700">-${fmtNum(clan.clanDeduction)}</span> &middot; ${clan.entries.length} suspect${clan.entries.length !== 1 ? 's' : ''}</div>
-        </div>
-        <span class="collapsible-chevron${clanIsOpen ? ' open' : ''}" id="${clanChevrId}">&#9658;</span>
-      </div>
-      <div id="${clanBodyId}"${clanIsOpen ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
-
-      for (const e of clan.entries) {
-        const srcTag   = `<span style="font-size:9px;color:#a6e3a1;background:rgba(166,227,161,0.12);border:1px solid rgba(166,227,161,0.3);padding:1px 5px;border-radius:5px">\u{1F7E2} Live</span>`;
-        const dropLine = e.dropAmount > 0
-          ? `<span style="color:var(--red);font-size:10px;margin-left:4px">\u2212${fmtNum(e.dropAmount)}${e.dropCount > 1 ? ` (${e.dropCount}\u00D7)` : ''}</span>` : '';
-        const detectedAt = e.dropTs
-          ? new Date(e.dropTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-          : new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        html += `<div class="suspect-hist-card" style="margin-bottom:5px">
-          <div class="suspect-hist-top">
-            <div style="flex:1;min-width:0">
-              <div style="font-size:10px;color:var(--text3)">${srcTag}&nbsp; ${detectedAt} &middot; ${fmtAgo(e.ts)}</div>
-            </div>
-            <div class="sm-badge"><span class="badge badge-suspect-high" style="font-size:9px">HIGH</span></div>
-          </div>
-          <div class="suspect-hist-member" style="margin-top:5px;border-bottom:none">
-            <div class="sm-icon">\u{1F6A8}</div>
-            <div class="sm-info">
-              <div class="sm-name">${esc(e.memberName)}
-                <span style="font-size:10px;color:var(--text3)">Lv ${e.memberLevel} &middot; Rep ${fmtNum(e.memberRep)}${dropLine}</span>
-              </div>
-              <div class="sm-reason">${esc(e.reason)}</div>
-            </div>
-          </div>
-        </div>`;
-      }
-
-      html += `</div>`; // end clan body
-      ci++;
-    }
-
-    html += `</div>`; // end date body
-    di++;
-  }
-
-  container.innerHTML = html;
-}
-
 
 let rankingsFilter  = 'all'; // 'all' | 'gaining-bleed' | 'gaining-manual' | 'risk'
-let dedFilterClanId = 'all'; // 'all' or a specific clanId (number)
-let suspectFilter   = 'all'; // 'all' | 'high'
-
-// Suspect tab — tracks which date/clan sections the user has manually opened.
-// All start collapsed; re-renders respect whatever the user has open.
-let suspectOpenDates = new Set();
-let suspectOpenClans = new Set();
-
-// Deduction tab — collapsible API section + date/clan open-state tracking.
-let dedApiOpen   = false;
-let dedOpenDates = new Set();
-let dedOpenClans = new Set();
-let dedOurClanOpen = false;
-let dedOurClanOpenDates = new Set();
-
-// Suspects tab — our clan open-state tracking.
-let suspOurClanOpen = false;
-let suspOurClanOpenDates = new Set();
-
 function setRankingsFilter(filter, btn) {
   rankingsFilter = filter;
   document.querySelectorAll('.rank-filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   renderRankings();
-}
-
-function setDedFilter(clanId, btn) {
-  dedFilterClanId = clanId;
-  document.querySelectorAll('.ded-filter-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  renderDeductions();
-}
-
-function setSuspectFilter(filter, btn) {
-  suspectFilter = filter;
-  renderSuspects();
-}
-
-function toggleSection(bodyId, chevronId) {
-  const el = document.getElementById(bodyId);
-  if (!el) return;
-  const opening = el.style.display === 'none';
-  el.style.display = opening ? '' : 'none';
-  const ch = document.getElementById(chevronId);
-  if (ch) ch.classList.toggle('open', opening);
-}
-
-function toggleSuspectDate(dateKey, bodyId, chevronId) {
-  if (suspectOpenDates.has(dateKey)) suspectOpenDates.delete(dateKey);
-  else suspectOpenDates.add(dateKey);
-  toggleSection(bodyId, chevronId);
-}
-
-function toggleSuspectClan(clanKey, bodyId, chevronId) {
-  if (suspectOpenClans.has(clanKey)) suspectOpenClans.delete(clanKey);
-  else suspectOpenClans.add(clanKey);
-  toggleSection(bodyId, chevronId);
-}
-
-function toggleDedApi() {
-  dedApiOpen = !dedApiOpen;
-  const el = document.getElementById('ded-api-body');
-  const ch = document.getElementById('ded-api-chev');
-  if (el) el.style.display = dedApiOpen ? '' : 'none';
-  if (ch) ch.classList.toggle('open', dedApiOpen);
-}
-
-function toggleDedDate(dateKey, bodyId, chevronId) {
-  if (dedOpenDates.has(dateKey)) dedOpenDates.delete(dateKey);
-  else dedOpenDates.add(dateKey);
-  toggleSection(bodyId, chevronId);
-}
-
-function toggleDedClan(clanKey, bodyId, chevronId) {
-  if (dedOpenClans.has(clanKey)) dedOpenClans.delete(clanKey);
-  else dedOpenClans.add(clanKey);
-  toggleSection(bodyId, chevronId);
-}
-
-function toggleDedOurClan() {
-  dedOurClanOpen = !dedOurClanOpen;
-  const el = document.getElementById('ded-ourclan-body');
-  const ch = document.getElementById('ded-ourclan-chev');
-  if (el) el.style.display = dedOurClanOpen ? '' : 'none';
-  if (ch) ch.classList.toggle('open', dedOurClanOpen);
-}
-
-function toggleDedOurClanDate(dateKey, bodyId, chevronId) {
-  if (dedOurClanOpenDates.has(dateKey)) dedOurClanOpenDates.delete(dateKey);
-  else dedOurClanOpenDates.add(dateKey);
-  toggleSection(bodyId, chevronId);
-}
-
-function toggleSuspOurClan() {
-  suspOurClanOpen = !suspOurClanOpen;
-  const el = document.getElementById('susp-ourclan-body');
-  const ch = document.getElementById('susp-ourclan-chev');
-  if (el) el.style.display = suspOurClanOpen ? '' : 'none';
-  if (ch) ch.classList.toggle('open', suspOurClanOpen);
-}
-
-function toggleSuspOurClanDate(dateKey, bodyId, chevronId) {
-  if (suspOurClanOpenDates.has(dateKey)) suspOurClanOpenDates.delete(dateKey);
-  else suspOurClanOpenDates.add(dateKey);
-  toggleSection(bodyId, chevronId);
-}
-
-function renderDeductions() {
-  const container = document.getElementById('deductions-list');
-  const log = state.deductionLog || [];
-
-  // ── OUR CLAN section (Hidden Cloud — always shown first for admin) ─────
-  let html = '';
-  const ourClanLog = log.filter(e => e.clanId === PERMANENT_CLAN_ID);
-  {
-    const hcClan = state.data ? state.data.clans.find(c => c.id === PERMANENT_CLAN_ID) : null;
-    const hcName = hcClan ? hcClan.name : 'Hidden Cloud Village';
-    const ourDateMap = new Map();
-    for (const entry of ourClanLog) {
-      const dateLabel = new Date(entry.ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-      if (!ourDateMap.has(dateLabel)) ourDateMap.set(dateLabel, []);
-      ourDateMap.get(dateLabel).push(entry);
-    }
-    const metaText = ourClanLog.length === 0
-      ? 'no deductions recorded'
-      : `${ourDateMap.size} date${ourDateMap.size !== 1 ? 's' : ''} \u00B7 ${ourClanLog.length} event${ourClanLog.length !== 1 ? 's' : ''}`;
-    html += `<div class="collapsible-date-hdr" onclick="toggleDedOurClan()" style="margin-top:6px;border-color:rgba(251,191,36,0.45);background:rgba(251,191,36,0.06)">
-      <span class="collapsible-date-label" style="color:var(--amber)">&#127968; Our Clan \u2014 ${esc(hcName)}</span>
-      <span style="display:flex;align-items:center;gap:8px">
-        <span class="collapsible-date-meta">${metaText}</span>
-        <span class="collapsible-chevron${dedOurClanOpen ? ' open' : ''}" id="ded-ourclan-chev">&#9658;</span>
-      </span>
-    </div>
-    <div id="ded-ourclan-body"${dedOurClanOpen ? '' : ' style="display:none"'}>`;
-    if (ourClanLog.length === 0) {
-      html += `<div style="padding:10px 14px;font-size:11px;color:var(--text3);font-style:italic">No deduction events recorded for our clan yet.</div>`;
-    } else {
-      let odi = 0;
-      const nowMs = Date.now();
-      for (const [dateLabel, entries] of ourDateMap) {
-        const dateIsOpen    = dedOurClanOpenDates.has(dateLabel);
-        const dateSectionId = `ded-ourclan-date-body-${odi}`;
-        const dateChevrId   = `ded-ourclan-date-chev-${odi}`;
-        const safeDateKey   = dateLabel.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        html += `<div class="collapsible-clan-hdr" onclick="toggleDedOurClanDate('${safeDateKey}','${dateSectionId}','${dateChevrId}')">
-          <div style="flex:1;min-width:0">
-            <div class="collapsible-clan-hdr-name">${esc(dateLabel)}</div>
-            <div class="collapsible-clan-hdr-meta">${entries.length} event${entries.length !== 1 ? 's' : ''}</div>
-          </div>
-          <span class="collapsible-chevron${dateIsOpen ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
-        </div>
-        <div id="${dateSectionId}"${dateIsOpen ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
-        for (const e of entries) {
-          const d = new Date(e.ts);
-          const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          const secAgo = Math.floor((nowMs - e.ts) / 1000);
-          const agoStr = secAgo < 60 ? `${secAgo}s ago` : secAgo < 3600 ? `${Math.floor(secAgo/60)}m ago` : `${Math.floor(secAgo/3600)}h ago`;
-          const eChangeSign  = e.change >= 0 ? '+' : '';
-          const eChangeColor = e.change > 0 ? 'var(--red)' : 'var(--green)';
-          const isNew = secAgo < 30;
-          const membersHtml = (e.members && e.members.length > 0)
-            ? `<div class="ded-members">
-                ${e.members.map(m => {
-                  const dropLine = m.dropAmount > 0
-                    ? ` <span style="color:var(--red);font-size:9px">\u2212${fmtNum(m.dropAmount)}${m.dropCount > 1 ? ` (${m.dropCount}\u00D7)` : ''}</span>`
-                    : '';
-                  return `<div class="ded-member-row">
-                    <div class="ded-member-icon">\u{1F6A8}</div>
-                    <div class="ded-member-info">
-                      <div class="ded-member-name">${esc(m.name)} <span style="font-size:10px;color:var(--text3)">Lv ${m.level} \u00B7 Rep ${fmtNum(m.reputation)}${dropLine}</span></div>
-                      <div class="ded-member-reason">${esc(m.reason)}</div>
-                    </div>
-                    <div class="ded-member-badge"><span class="badge badge-suspect-high" style="font-size:9px">HIGH</span></div>
-                  </div>`;
-                }).join('')}
-              </div>`
-            : '';
-          html += `<div class="ded-entry${isNew ? ' new' : ''}" onclick="viewClan(${e.clanId})">
-            <div class="ded-top-row">
-              <div class="ded-time">
-                <div style="font-size:12px;font-weight:600;color:var(--text2)">${esc(timeStr)}</div>
-                <div style="font-size:10px;color:var(--text3);margin-top:1px">${esc(agoStr)}</div>
-              </div>
-              <div class="ded-clan">
-                <div class="ded-clan-rank">${fmtNum(e.prevDeduction)} \u2192 ${fmtNum(e.deduction)}</div>
-              </div>
-              <div class="ded-amounts">
-                <div class="ded-total">-${fmtNum(e.deduction)}</div>
-                <div class="ded-change" style="color:${eChangeColor}">${eChangeSign}${fmtNum(e.change)}</div>
-              </div>
-            </div>
-            ${membersHtml}
-          </div>`;
-        }
-        html += `</div>`; // end date body
-        odi++;
-      }
-    }
-    html += `</div>`; // end ourclan body
-  }
-
-  // ── SECTION 1: Current API Deduction State (collapsible) ──────────────
-  if (state.data) {
-    const allDed = getAllClanDeductions();
-    if (allDed.length > 0) {
-      html += `<div class="collapsible-date-hdr" onclick="toggleDedApi()" style="margin-top:6px">
-        <span class="collapsible-date-label">\u{1F4E1} API Based Deductions</span>
-        <span style="display:flex;align-items:center;gap:8px">
-          <span class="collapsible-date-meta">${allDed.length} clan${allDed.length !== 1 ? 's' : ''} with active deductions</span>
-          <span class="collapsible-chevron${dedApiOpen ? ' open' : ''}" id="ded-api-chev">&#9658;</span>
-        </span>
-      </div>
-      <div id="ded-api-body"${dedApiOpen ? '' : ' style="display:none"'}>
-        <div style="margin:4px 12px 8px;font-size:11px;color:var(--text3)">
-          <span style="font-size:9px;padding:1px 5px;border-radius:5px;background:rgba(166,227,161,0.12);color:#a6e3a1;border:1px solid rgba(166,227,161,0.3)">\u{1F7E2} Caught Live</span>
-          = tracker observed rep drop live &nbsp;
-          <span style="font-size:9px;padding:1px 5px;border-radius:5px;background:rgba(137,180,250,0.1);color:#89b4fa;border:1px solid rgba(137,180,250,0.3)">\u{1F4E1} API Based</span>
-          = from API only
-        </div>`;
-
-      for (const { clan, suspects, clanSource } of allDed) {
-        const clanDedLog  = log.filter(e => e.clanId === clan.id);
-        const latestDed   = clanDedLog[0] || null;
-        const latestChange = latestDed ? latestDed.change : null;
-        const prevDedVal  = latestDed ? latestDed.prevDeduction : null;
-        const dedTs = latestDed
-          ? new Date(latestDed.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-          : null;
-
-        const liveMemberDrops = suspects.filter(s => s.detectionSource === 'live')
-                                         .reduce((n, s) => n + (s.dropAmount || 0), 0);
-        const isAligned = latestChange !== null && latestChange > 0 && liveMemberDrops === latestChange;
-        const highCount = suspects.filter(s => s.suspicionLevel === 'HIGH').length;
-
-        const srcBadge = clanSource === 'live'
-          ? `<span style="font-size:9px;padding:2px 6px;border-radius:6px;background:rgba(166,227,161,0.12);color:#a6e3a1;border:1px solid rgba(166,227,161,0.3)">\u{1F7E2} Caught Live</span>`
-          : `<span style="font-size:9px;padding:2px 6px;border-radius:6px;background:rgba(137,180,250,0.1);color:#89b4fa;border:1px solid rgba(137,180,250,0.3)">\u{1F4E1} API Based</span>`;
-
-        let alignHtml = '';
-        if (latestChange !== null && latestChange > 0) {
-          const alignColor = isAligned ? 'var(--green)' : '#f9e2af';
-          const alignIcon  = isAligned ? '\u2705' : '\u26A0\uFE0F';
-          alignHtml = `<div style="font-size:10px;color:var(--text3);margin-top:3px">
-            Deduction change: <span style="color:var(--red);font-weight:700">+${fmtNum(latestChange)}</span>
-            (${fmtNum(prevDedVal)} \u2192 ${fmtNum(clan.deduction)})${dedTs ? ` at ${dedTs}` : ''}
-            &nbsp;\u00B7&nbsp; Members' live drop total: <span style="color:${alignColor};font-weight:700">${fmtNum(liveMemberDrops)}</span>
-            &nbsp;${alignIcon} ${isAligned ? '<span style="color:var(--green)">Aligned</span>' : '<span style="color:#f9e2af">Not aligned</span>'}
-          </div>`;
-        } else {
-          alignHtml = `<div style="font-size:10px;color:var(--blue);margin-top:3px">
-            Total cumulative deduction: <span style="color:var(--red);font-weight:700">-${fmtNum(clan.deduction)}</span>
-            &nbsp;\u00B7&nbsp; Detected from API only \u2014 no live change logged this session
-          </div>`;
-        }
-
-        html += `<div class="bleed-clan-card" style="border-color:rgba(243,139,168,0.3);margin-bottom:6px" onclick="viewClan(${clan.id})">
-          <div class="bleed-clan-card-top" style="margin-bottom:4px">
-            <div style="flex:1;min-width:0">
-              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                <span style="font-size:14px;font-weight:700;color:var(--text)">${esc(clan.name)}</span>
-                <span style="font-size:11px;color:var(--text3)">#${clan.rank}</span>
-                ${srcBadge}
-              </div>
-              <div style="font-size:11px;color:var(--text3);margin-top:2px">
-                Anti-cheat deduction: <span style="color:var(--red);font-weight:700">-${fmtNum(clan.deduction)}</span>
-              </div>
-              ${alignHtml}
-            </div>
-            <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end;flex-shrink:0;margin-left:8px">
-              ${highCount > 0 ? `<span class="badge badge-suspect-high">\u{1F6A8} ${highCount} HIGH</span>` : ''}
-              ${suspects.length === 0 ? `<span style="font-size:9px;color:var(--text3)">No members caught</span>` : ''}
-            </div>
-          </div>
-        </div>`;
-      }
-      html += `</div>`; // end ded-api-body
-    }
-  }
-
-  // ── SECTION 2: Live Deduction Change Log (date → clan → events) ────────────
-  if (log.length === 0) {
-    html += `<div class="empty-state" style="padding:24px 20px">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:36px;height:36px;opacity:.4"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-      <h3 style="font-size:13px">No Deduction Changes Logged Yet</h3>
-      <p style="font-size:11px">The tracker logs a new entry every time any clan's anti-cheat deduction value changes. Keep it running and entries will appear here automatically.</p>
-    </div>`;
-    container.innerHTML = html;
-    return;
-  }
-
-  // Group by date → clan
-  const dateMap = new Map();
-  for (const entry of log) {
-    const dateLabel = new Date(entry.ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    if (!dateMap.has(dateLabel)) dateMap.set(dateLabel, new Map());
-    const clanMap = dateMap.get(dateLabel);
-    if (!clanMap.has(entry.clanId)) clanMap.set(entry.clanId, { clanName: entry.clanName, clanRank: entry.clanRank, entries: [] });
-    clanMap.get(entry.clanId).entries.push(entry);
-  }
-
-  const nowMs = Date.now();
-  html += `<div style="padding:4px 12px 4px;font-size:11px;color:var(--text3)">${log.length} event${log.length !== 1 ? 's' : ''} recorded</div>`;
-
-
-  let di = 0;
-  for (const [dateLabel, clanMap] of dateMap) {
-    const totalEvents   = [...clanMap.values()].reduce((n, c) => n + c.entries.length, 0);
-    const dateIsOpen    = dedOpenDates.has(dateLabel);
-    const dateSectionId = `ded-date-body-${di}`;
-    const dateChevrId   = `ded-date-chev-${di}`;
-    const safeDateKey   = dateLabel.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    html += `<div class="collapsible-date-hdr" onclick="toggleDedDate('${safeDateKey}','${dateSectionId}','${dateChevrId}')">
-      <span class="collapsible-date-label">${esc(dateLabel)}</span>
-      <span style="display:flex;align-items:center;gap:8px">
-        <span class="collapsible-date-meta">${clanMap.size} clan${clanMap.size !== 1 ? 's' : ''} &middot; ${totalEvents} event${totalEvents !== 1 ? 's' : ''}</span>
-        <span class="collapsible-chevron${dateIsOpen ? ' open' : ''}" id="${dateChevrId}">&#9658;</span>
-      </span>
-    </div>
-    <div id="${dateSectionId}"${dateIsOpen ? '' : ' style="display:none"'}>`;
-
-    let ci = 0;
-    for (const [clanId, clan] of clanMap) {
-      const clanBodyId  = `ded-clan-body-${di}-${ci}`;
-      const clanChevrId = `ded-clan-chev-${di}-${ci}`;
-      const clanKey     = `${dateLabel}::${clanId}`;
-      const safeClanKey = clanKey.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      const clanIsOpen  = dedOpenClans.has(clanKey);
-      const latestEntry = clan.entries[0];
-      const changeSign  = latestEntry.change >= 0 ? '+' : '';
-      const changeColor = latestEntry.change > 0 ? 'var(--red)' : 'var(--green)';
-
-      html += `<div class="collapsible-clan-hdr" onclick="toggleDedClan('${safeClanKey}','${clanBodyId}','${clanChevrId}')">
-        <div style="flex:1;min-width:0">
-          <div class="collapsible-clan-hdr-name">${esc(clan.clanName)} <span style="font-size:10px;color:var(--text3);font-weight:400">#${clan.clanRank}</span></div>
-          <div class="collapsible-clan-hdr-meta">Deduction: <span style="color:var(--red);font-weight:700">-${fmtNum(latestEntry.deduction)}</span> &middot; latest change: <span style="color:${changeColor};font-weight:700">${changeSign}${fmtNum(latestEntry.change)}</span> &middot; ${clan.entries.length} event${clan.entries.length !== 1 ? 's' : ''}</div>
-        </div>
-        <span class="collapsible-chevron${clanIsOpen ? ' open' : ''}" id="${clanChevrId}">&#9658;</span>
-      </div>
-      <div id="${clanBodyId}"${clanIsOpen ? '' : ' style="display:none"'} style="padding:0 12px 4px">`;
-
-      for (const e of clan.entries) {
-        const d = new Date(e.ts);
-        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        const secAgo = Math.floor((nowMs - e.ts) / 1000);
-        const agoStr = secAgo < 60 ? `${secAgo}s ago` : secAgo < 3600 ? `${Math.floor(secAgo/60)}m ago` : `${Math.floor(secAgo/3600)}h ago`;
-        const eChangeSign  = e.change >= 0 ? '+' : '';
-        const eChangeColor = e.change > 0 ? 'var(--red)' : 'var(--green)';
-        const isNew = secAgo < 30;
-
-        const membersHtml = (e.members && e.members.length > 0)
-          ? `<div class="ded-members">
-              ${e.members.map(m => {
-                const dropLine = m.dropAmount > 0
-                  ? ` <span style="color:var(--red);font-size:9px">\u2212${fmtNum(m.dropAmount)}${m.dropCount > 1 ? ` (${m.dropCount}\u00D7)` : ''}</span>`
-                  : '';
-                return `<div class="ded-member-row">
-                  <div class="ded-member-icon">\u{1F6A8}</div>
-                  <div class="ded-member-info">
-                    <div class="ded-member-name">${esc(m.name)} <span style="font-size:10px;color:var(--text3)">Lv ${m.level} \u00B7 Rep ${fmtNum(m.reputation)}${dropLine}</span></div>
-                    <div class="ded-member-reason">${esc(m.reason)}</div>
-                  </div>
-                  <div class="ded-member-badge"><span class="badge badge-suspect-high" style="font-size:9px">HIGH</span></div>
-                </div>`;
-              }).join('')}
-            </div>`
-          : '';
-
-        html += `<div class="ded-entry${isNew ? ' new' : ''}" onclick="viewClan(${e.clanId})">
-          <div class="ded-top-row">
-            <div class="ded-time">
-              <div style="font-size:12px;font-weight:600;color:var(--text2)">${esc(timeStr)}</div>
-              <div style="font-size:10px;color:var(--text3);margin-top:1px">${esc(agoStr)}</div>
-            </div>
-            <div class="ded-clan">
-              <div class="ded-clan-rank">${fmtNum(e.prevDeduction)} \u2192 ${fmtNum(e.deduction)}</div>
-            </div>
-            <div class="ded-amounts">
-              <div class="ded-total">-${fmtNum(e.deduction)}</div>
-              <div class="ded-change" style="color:${eChangeColor}">${eChangeSign}${fmtNum(e.change)}</div>
-            </div>
-          </div>
-          ${membersHtml}
-        </div>`;
-      }
-
-      html += `</div>`; // end clan body
-      ci++;
-    }
-
-    html += `</div>`; // end date body
-    di++;
-  }
-
-  container.innerHTML = html;
 }
 
 function renderBleeding() {
@@ -3787,7 +2273,7 @@ function renderHistory() {
 // NAVIGATION
 // ============================================================
 function showTab(tab) {
-  if ((tab === 'deductions' || tab === 'suspects' || tab === 'season-history') && accessLevel !== 'admin') return;
+  if (tab === 'season-history' && accessLevel !== 'admin') return;
   state.currentTab = tab;
   state.currentDetailClanId = null;
 
@@ -4562,29 +3048,6 @@ function confirmReset() {
   document.getElementById('modal-overlay').classList.add('visible');
 }
 
-function confirmDeleteLocalRecords() {
-  document.getElementById('modal-title').textContent = 'Delete Local Records?';
-  document.getElementById('modal-sub').textContent = 'This will erase all suspect and deduction logs saved on this device. Firebase data is untouched.';
-  document.getElementById('modal-confirm-btn').textContent = 'Delete Local Records';
-  document.getElementById('modal-confirm-btn').onclick = () => {
-    state.suspectLog = [];
-    state.deductionLog = [];
-    bleedEventLog = [];
-    suspectLogKeysSeen.clear();
-    state.lastFirestoreSync = 0;
-    saveToStorage();
-    closeModal();
-    // Reload so initFirestoreListeners runs with hasFreshCache=false,
-    // triggering a full historical re-fetch from Firebase.
-    location.reload();
-  };
-  document.getElementById('modal-overlay').classList.add('visible');
-}
-
-function confirmDeleteFirebaseRecords() {
-  showDeleteFirebasePasswordModal();
-}
-
 // \u2500\u2500 Password-protected Firebase delete helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 async function hashPassword(plain) {
@@ -4607,22 +3070,6 @@ async function initAdminPassword() {
   } catch(e) { console.warn('initAdminPassword error', e); }
 }
 
-function showDeleteFirebasePasswordModal() {
-  pwModalMode = 'delete';
-  document.getElementById('pw-modal-title').textContent = '\u{1F512} Admin Verification Required';
-  document.getElementById('pw-modal-sub').textContent = 'Enter the admin password to permanently delete all Firebase records. This action cannot be undone.';
-  const inp = document.getElementById('pw-input');
-  inp.value = '';
-  inp.type  = 'password';
-  inp.classList.remove('error');
-  document.getElementById('pw-error').textContent = '';
-  document.getElementById('pw-toggle-btn').textContent = '\u{1F441}';
-  document.getElementById('pw-confirm-btn').disabled = false;
-  document.getElementById('pw-confirm-btn').textContent = 'Delete Firebase Records';
-  document.getElementById('pw-modal-overlay').classList.add('visible');
-  setTimeout(() => inp.focus(), 80);
-}
-
 function closePwModal(e) {
   if (e && e.target !== document.getElementById('pw-modal-overlay')) return;
   document.getElementById('pw-modal-overlay').classList.remove('visible');
@@ -4630,12 +3077,10 @@ function closePwModal(e) {
 
 // Single source of truth for what the confirm button should say, since it
 // gets reset to this label in a few different places (initial open, wrong
-// password, and on a request error) across four modal modes.
+// password, and on a request error) across modal modes.
 function pwModalConfirmLabel() {
-  if (pwModalMode === 'access')      return 'Unlock Admin Access';
-  if (pwModalMode === 'archive')     return 'Archive & Reset';
-  if (pwModalMode === 'clearRounds') return 'Delete Round History';
-  return 'Delete Firebase Records';
+  if (pwModalMode === 'access') return 'Unlock Admin Access';
+  return 'Delete Round History';
 }
 
 function togglePwVisibility() {
@@ -4679,28 +3124,7 @@ async function submitPwModal() {
     // Password correct \u2014 close modal then branch on mode
     document.getElementById('pw-modal-overlay').classList.remove('visible');
     if (pwModalMode === 'access') { setAccessLevel('admin'); return; }
-    if (pwModalMode === 'archive') { await executeArchiveSeason(); return; }
     if (pwModalMode === 'clearRounds') { await executeClearRoundHistory(); return; }
-
-    try {
-      const res = await fetch('/api/suspects-deductions/clear', { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    } catch(e) {
-      console.warn('suspects/deductions clear error', e);
-      errEl.textContent = 'Failed to delete Firebase records. Check your connection and try again.';
-      btn.disabled = false;
-      btn.textContent = pwModalConfirmLabel();
-      return;
-    }
-
-    state.suspectLog   = [];
-    state.deductionLog = [];
-    suspectLogKeysSeen.clear();
-    saveToStorage();
-    updateSuspectsTabBadge();
-    if (state.currentTab === 'suspects')   renderSuspects();
-    if (state.currentTab === 'deductions') renderDeductions();
 
   } catch(e) {
     console.warn('submitPwModal error', e);
@@ -4729,156 +3153,6 @@ async function executeClearRoundHistory() {
   state.roundHistory = [];
   saveToStorage();
   if (state.currentTab === 'history') renderHistory();
-}
-
-// ============================================================
-// SEASON ARCHIVE
-// ============================================================
-
-function showArchiveSeasonModal() {
-  if (!db || accessLevel !== 'admin') return;
-  pwModalMode = 'archive';
-  document.getElementById('pw-modal-title').textContent = '\u{1F4CB} Archive & Reset Season Data';
-  document.getElementById('pw-modal-sub').textContent = 'This will consolidate all suspect & deduction logs into a seasonal archive, then permanently clear the live collections. Enter the admin password to continue.';
-  const inp = document.getElementById('pw-input');
-  inp.value = '';
-  inp.type = 'password';
-  inp.classList.remove('error');
-  document.getElementById('pw-error').textContent = '';
-  document.getElementById('pw-toggle-btn').textContent = '\u{1F441}';
-  document.getElementById('pw-confirm-btn').disabled = false;
-  document.getElementById('pw-confirm-btn').textContent = 'Archive & Reset';
-  document.getElementById('pw-modal-overlay').classList.add('visible');
-  setTimeout(() => inp.focus(), 80);
-}
-
-async function executeArchiveSeason() {
-  if (!db || accessLevel !== 'admin') return;
-  const season = state.data && state.data.season;
-  const seasonId = season ? `season${season.id}` : `season_${Date.now()}`;
-  const seasonName = season ? season.name : 'Unknown Season';
-  const archivedAt = new Date().toISOString();
-  const archivedBy = loggedInUserName || 'admin';
-
-  // ── Read all suspect docs ──────────────────────────────────
-  const allSuspects = [];
-  try {
-    let lastDoc = null;
-    while (true) {
-      let q = db.collection('suspectLog').orderBy('ts', 'desc').limit(500);
-      if (lastDoc) q = q.startAfter(lastDoc);
-      const snap = await q.get();
-      if (snap.empty) break;
-      snap.forEach(d => allSuspects.push(d.data()));
-      lastDoc = snap.docs[snap.docs.length - 1];
-      if (snap.docs.length < 500) break;
-    }
-  } catch(e) { console.warn('archive: read suspectLog error', e); }
-
-  // ── Read all deduction docs ────────────────────────────────
-  const allDeductions = [];
-  try {
-    let lastDoc = null;
-    while (true) {
-      let q = db.collection('deductionLog').orderBy('ts', 'desc').limit(500);
-      if (lastDoc) q = q.startAfter(lastDoc);
-      const snap = await q.get();
-      if (snap.empty) break;
-      snap.forEach(d => allDeductions.push(d.data()));
-      lastDoc = snap.docs[snap.docs.length - 1];
-      if (snap.docs.length < 500) break;
-    }
-  } catch(e) { console.warn('archive: read deductionLog error', e); }
-
-  // ── Write archive summary docs ─────────────────────────────
-  const meta = { season: seasonId, seasonName, archivedAt, archivedBy, totalSuspects: allSuspects.length, totalDeductions: allDeductions.length };
-  try {
-    await db.collection('seasonArchive').doc(seasonId + '_suspects').set({ ...meta, entries: allSuspects });
-    await db.collection('seasonArchive').doc(seasonId + '_deductions').set({ ...meta, entries: allDeductions });
-  } catch(e) { console.warn('archive: write seasonArchive error', e); }
-
-  // ── Batch-delete suspectLog ────────────────────────────────
-  try {
-    let snap = await db.collection('suspectLog').limit(500).get();
-    while (!snap.empty) {
-      const batch = db.batch();
-      snap.forEach(d => batch.delete(d.ref));
-      await batch.commit();
-      if (snap.docs.length < 500) break;
-      snap = await db.collection('suspectLog').limit(500).get();
-    }
-  } catch(e) { console.warn('archive: delete suspectLog error', e); }
-
-  // ── Batch-delete deductionLog ──────────────────────────────
-  try {
-    let snap = await db.collection('deductionLog').limit(500).get();
-    while (!snap.empty) {
-      const batch = db.batch();
-      snap.forEach(d => batch.delete(d.ref));
-      await batch.commit();
-      if (snap.docs.length < 500) break;
-      snap = await db.collection('deductionLog').limit(500).get();
-    }
-  } catch(e) { console.warn('archive: delete deductionLog error', e); }
-
-  // ── Reset local state ──────────────────────────────────────
-  state.suspectLog   = [];
-  state.deductionLog = [];
-  suspectLogKeysSeen.clear();
-  saveToStorage();
-  updateSuspectsTabBadge();
-  if (state.currentTab === 'suspects')   renderSuspects();
-  if (state.currentTab === 'deductions') renderDeductions();
-
-  // ── Store for immediate download ───────────────────────────
-  _lastSeasonArchive = { meta, suspects: allSuspects, deductions: allDeductions };
-  const dlBtn = document.getElementById('btn-download-season-report');
-  if (dlBtn) dlBtn.style.display = '';
-
-  alert(`\u2705 Season archive complete!\n${allSuspects.length} suspects and ${allDeductions.length} deductions archived under "${seasonId}".\nClick "Download Seasonal Cheater Report" to save a copy.`);
-}
-
-async function checkSeasonArchiveExists() {
-  if (!db) return;
-  try {
-    const snap = await db.collection('seasonArchive').limit(1).get();
-    const dlBtn = document.getElementById('btn-download-season-report');
-    if (dlBtn) dlBtn.style.display = snap.empty ? 'none' : '';
-    if (!snap.empty && !_lastSeasonArchive) {
-      // Load the most recent archive for download
-      const allDocs = await db.collection('seasonArchive').get();
-      const suspects = [], deductions = [];
-      let meta = {};
-      allDocs.forEach(d => {
-        const data = d.data();
-        if (d.id.endsWith('_suspects'))   { suspects.push(...(data.entries || [])); meta = { ...data }; delete meta.entries; }
-        if (d.id.endsWith('_deductions')) { deductions.push(...(data.entries || [])); }
-      });
-      _lastSeasonArchive = { meta, suspects, deductions };
-    }
-  } catch(e) { console.warn('checkSeasonArchiveExists error', e); }
-}
-
-function downloadSeasonReport() {
-  if (!_lastSeasonArchive) { alert('No archive found. Run "Archive & Reset Season Data" first.'); return; }
-  const { meta, suspects, deductions } = _lastSeasonArchive;
-  const report = {
-    reportTitle: 'Seasonal Cheater Report \u2014 Hidden Cloud Village',
-    season: meta.seasonName || meta.season,
-    archivedAt: meta.archivedAt,
-    archivedBy: meta.archivedBy,
-    totalSuspects: suspects.length,
-    totalDeductions: deductions.length,
-    suspects,
-    deductions,
-  };
-  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `HC_Seasonal_Cheater_Report_${(meta.season || 'season').toUpperCase()}_${new Date().toISOString().slice(0,10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 // ============================================================
@@ -4912,9 +3186,7 @@ function setAccessLevel(level) {
     else sessionStorage.removeItem('hcld_admin');
   } catch(_) {}
 
-  // Tab bar: show/hide Deductions, Suspects and Season History
-  document.getElementById('tab-deductions').style.display = isAdmin ? '' : 'none';
-  document.getElementById('tab-suspects').style.display   = isAdmin ? '' : 'none';
+  // Tab bar: show/hide Season History
   document.getElementById('tab-season-history').style.display = isAdmin ? '' : 'none';
   // If a normal user was somehow left on the season-history tab when access
   // was revoked, bounce them back to Rankings rather than leave a blank admin screen.
@@ -4932,26 +3204,13 @@ function setAccessLevel(level) {
   const dataSection = document.getElementById('settings-data-section');
   if (dataSection) dataSection.style.display = isAdmin ? '' : 'none';
 
-  // Settings: toggle Firebase delete row and access buttons
-  const fbRow = document.getElementById('settings-firebase-row');
-  if (fbRow) fbRow.style.display = isAdmin ? '' : 'none';
+  // Settings: toggle round-history delete row and access buttons
   const roundHistRow = document.getElementById('settings-round-history-row');
   if (roundHistRow) roundHistRow.style.display = isAdmin ? '' : 'none';
   const btnAccess = document.getElementById('btn-admin-access');
   const btnExit   = document.getElementById('btn-exit-admin');
   if (btnAccess) btnAccess.style.display = isAdmin ? 'none' : '';
   if (btnExit)   btnExit.style.display   = isAdmin ? '' : 'none';
-
-  // Settings: show/hide Season Archive section (admin only)
-  const archiveSection = document.getElementById('settings-season-archive-section');
-  if (archiveSection) archiveSection.style.display = isAdmin ? '' : 'none';
-
-  // Settings: show/hide Tracking Controls section (admin only)
-  const trackingSection = document.getElementById('settings-tracking-controls-section');
-  if (trackingSection) {
-    trackingSection.style.display = isAdmin ? '' : 'none';
-    if (isAdmin) renderTrackingControls();
-  }
 
   // Settings: show/hide Correct Season Start Time section (admin only)
   const seasonStartSection = document.getElementById('settings-season-start-section');
@@ -4969,15 +3228,14 @@ function setAccessLevel(level) {
       fetchDiscordWebhookUrl();   // always re-read from Firestore, never trust a leftover value
     }
   }
-  // Refresh download button visibility based on whether an archive exists
-  if (isAdmin) checkSeasonArchiveExists();
 
   // Admin badge in header
   const adminBadge = document.getElementById('header-admin-badge');
   if (adminBadge) adminBadge.style.display = isAdmin ? 'flex' : 'none';
 
+
   // If on a now-hidden tab, redirect to rankings
-  if (!isAdmin && (state.currentTab === 'deductions' || state.currentTab === 'suspects')) {
+  if (!isAdmin && state.currentTab === 'season-history') {
     showTab('rankings');
   } else {
     renderCurrentView();
@@ -4986,67 +3244,6 @@ function setAccessLevel(level) {
 
 function exitAdminLevel() {
   setAccessLevel('normal');
-}
-
-// ============================================================
-// TRACKING CONTROLS (Admin Only)
-// ============================================================
-// Lets an admin pause the deduction/suspect auto-detection pipelines when the
-// upstream clan-rankings API is misbehaving (e.g. a deduction value flapping
-// every poll), which would otherwise cause a surge of Firestore read/write
-// traffic. Posts to the server, which is the single source of truth: it
-// persists the flag, stops accepting writes for that pipeline, and
-// broadcasts the new state to every connected client over the existing
-// tracker SSE stream — so the pause takes effect everywhere at once, not
-// just on the admin's own device.
-function setTrackerPause(patch) {
-  fetch('/api/tracker-pause', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
-  }).then(res => res.json()).then(data => {
-    if (data && data.pause) { trackerPause = data.pause; renderTrackingControls(); }
-  }).catch(e => console.warn('tracker-pause update error', e));
-}
-
-function toggleDeductionTracking() {
-  setTrackerPause({ deductions: !trackerPause.deductions });
-}
-function toggleSuspectTracking() {
-  setTrackerPause({ suspects: !trackerPause.suspects });
-}
-function toggleBothTracking() {
-  // If either is currently active, "stop both" wins; only resumes both when
-  // both are already stopped.
-  const bothStopped = trackerPause.deductions && trackerPause.suspects;
-  setTrackerPause({ deductions: !bothStopped, suspects: !bothStopped });
-}
-
-function renderTrackingControls() {
-  const dedBtn = document.getElementById('btn-toggle-deduction-tracking');
-  const dedStatus = document.getElementById('tracking-deduction-status');
-  if (dedBtn && dedStatus) {
-    const stopped = !!trackerPause.deductions;
-    dedBtn.textContent = stopped ? '\u25B6 Resume Deduction Tracking' : '\u23F8 Stop Deduction Tracking';
-    dedBtn.className = stopped ? 'btn-primary' : 'btn-danger';
-    dedStatus.textContent = stopped ? 'Stopped' : 'Active';
-    dedStatus.style.color = stopped ? 'var(--red)' : 'var(--green)';
-  }
-  const suspBtn = document.getElementById('btn-toggle-suspect-tracking');
-  const suspStatus = document.getElementById('tracking-suspect-status');
-  if (suspBtn && suspStatus) {
-    const stopped = !!trackerPause.suspects;
-    suspBtn.textContent = stopped ? '\u25B6 Resume Suspect Tracking' : '\u23F8 Stop Suspect Tracking';
-    suspBtn.className = stopped ? 'btn-primary' : 'btn-danger';
-    suspStatus.textContent = stopped ? 'Stopped' : 'Active';
-    suspStatus.style.color = stopped ? 'var(--red)' : 'var(--green)';
-  }
-  const bothBtn = document.getElementById('btn-toggle-both-tracking');
-  if (bothBtn) {
-    const bothStopped = trackerPause.deductions && trackerPause.suspects;
-    bothBtn.textContent = bothStopped ? '\u25B6 Resume Both' : '\u23F8 Stop Both (Deduction + Suspect)';
-    bothBtn.className = bothStopped ? 'btn-primary' : 'btn-danger';
-  }
 }
 
 // ============================================================
@@ -5248,9 +3445,6 @@ async function initFirestoreListeners() {
   // Always render from localStorage immediately so the UI isn't blank while
   // we wait for the meta check round-trip.
   setFbStatus('connecting');
-  updateSuspectsTabBadge();
-  if (state.currentTab === 'suspects')   renderSuspects();
-  if (state.currentTab === 'deductions') renderDeductions();
   if (state.currentTab === 'history')    renderHistory();
   if (state.currentTab === 'bleed')      renderBleeding();
 
@@ -5274,37 +3468,19 @@ async function initFirestoreListeners() {
   // Live listeners start from here (5 s overlap handles clock-skew)
   const liveFrom = hasFreshCache ? (lastSync - 5000) : (now - 5000);
 
-  // ── Suspects / deductions / rounds / bleed log ────────────────────────────
-  // These four used to be four separate direct Firestore onSnapshot listeners
-  // per browser tab (plus separate catch-up .get() calls). They now come from
+  // ── Rounds / bleed log ─────────────────────────────────────────────────────
+  // These used to be separate direct Firestore onSnapshot listeners per
+  // browser tab (plus separate catch-up .get() calls). They now come from
   // one server-owned channel: a single snapshot fetch for catch-up, then one
   // shared SSE connection for live updates. The server dedupes and writes to
-  // Firestore on clients' behalf (see /api/suspects, /api/deductions,
-  // /api/rounds, /api/bleed-events in server.js), so no client talks to
-  // Firestore for these collections anymore — reads and writes for them no
-  // longer scale with how many people have the tab open.
+  // Firestore on clients' behalf (see /api/rounds, /api/bleed-events in
+  // server.js), so no client talks to Firestore for these collections
+  // anymore — reads and writes for them no longer scale with how many
+  // people have the tab open.
   try {
     const snapRes = await fetch('/api/tracker-snapshot', { cache: 'no-store' });
     if (snapRes.ok) {
       const snap = await snapRes.json();
-
-      if (!state.suspectLog) state.suspectLog = [];
-      for (const entry of (snap.suspects || [])) {
-        if (!entry.dedupKey || suspectLogKeysSeen.has(entry.dedupKey)) continue;
-        suspectLogKeysSeen.add(entry.dedupKey);
-        state.suspectLog.push(entry);
-      }
-      state.suspectLog.sort((a, b) => b.ts - a.ts);
-      if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
-
-      if (!state.deductionLog) state.deductionLog = [];
-      for (const entry of (snap.deductions || [])) {
-        const key = `${entry.clanId}_${entry.ts}`;
-        if ((state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key)) continue;
-        state.deductionLog.push(entry);
-      }
-      state.deductionLog.sort((a, b) => b.ts - a.ts);
-      if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
 
       for (const entry of (snap.rounds || [])) {
         if (state.roundHistory.some(r => r.id === entry.id)) continue;
@@ -5322,13 +3498,8 @@ async function initFirestoreListeners() {
       }
       if (bleedEventLog.length > 500) bleedEventLog = bleedEventLog.slice(0, 500);
 
-      if (snap.pause) { trackerPause = snap.pause; renderTrackingControls(); }
-
       state.lastFirestoreSync = Date.now();
       saveToStorage();
-      updateSuspectsTabBadge();
-      if (state.currentTab === 'suspects')   renderSuspects();
-      if (state.currentTab === 'deductions') renderDeductions();
       if (state.currentTab === 'history')    renderHistory();
       if (state.currentTab === 'bleed')      renderBleeding();
       setFbStatus('connected');
@@ -5347,29 +3518,7 @@ async function initFirestoreListeners() {
         const { type, entry } = JSON.parse(evt.data);
         if (!entry) return;
 
-        if (type === 'suspect') {
-          if (!entry.dedupKey || suspectLogKeysSeen.has(entry.dedupKey)) return;
-          suspectLogKeysSeen.add(entry.dedupKey);
-          if (!state.suspectLog) state.suspectLog = [];
-          state.suspectLog.unshift(entry);
-          state.suspectLog.sort((a, b) => b.ts - a.ts);
-          if (state.suspectLog.length > 1000) state.suspectLog = state.suspectLog.slice(0, 1000);
-          state.lastFirestoreSync = Date.now();
-          saveToStorage();
-          updateSuspectsTabBadge();
-          if (state.currentTab === 'suspects') renderSuspects();
-
-        } else if (type === 'deduction') {
-          const key = `${entry.clanId}_${entry.ts}`;
-          if ((state.deductionLog || []).some(e => `${e.clanId}_${e.ts}` === key)) return;
-          if (!state.deductionLog) state.deductionLog = [];
-          state.deductionLog.unshift(entry);
-          state.deductionLog.sort((a, b) => b.ts - a.ts);
-          if (state.deductionLog.length > 500) state.deductionLog = state.deductionLog.slice(0, 500);
-          saveToStorage();
-          if (state.currentTab === 'deductions') renderDeductions();
-
-        } else if (type === 'round') {
+        if (type === 'round') {
           if (state.roundHistory.some(r => r.id === entry.id)) return;
           state.roundHistory.push(entry);
           state.roundHistory.sort((a, b) => new Date(a.startTs) - new Date(b.startTs));
@@ -5381,19 +3530,6 @@ async function initFirestoreListeners() {
           state.roundHistory = [];
           saveToStorage();
           if (state.currentTab === 'history') renderHistory();
-
-        } else if (type === 'suspectsDeductionsCleared') {
-          state.suspectLog   = [];
-          state.deductionLog = [];
-          suspectLogKeysSeen.clear();
-          saveToStorage();
-          updateSuspectsTabBadge();
-          if (state.currentTab === 'suspects')   renderSuspects();
-          if (state.currentTab === 'deductions') renderDeductions();
-
-        } else if (type === 'pauseState') {
-          trackerPause = entry;
-          renderTrackingControls();
 
         } else if (type === 'bleedEvent') {
           if (entry._patchId) {
@@ -5483,7 +3619,7 @@ function syncBleedsToServer(bleeds) {
 // Notify server of a bleedEventLog write so it can cache + SSE-broadcast it —
 // the client still writes the doc itself (these are rare, one-off admin
 // clicks, not auto-detected every poll, so they were never duplicated the
-// way suspects/deductions/rounds were). Pass { _patchId } to patch an
+// way rounds were). Pass { _patchId } to patch an
 // existing cached entry in place (used when unmarking flags the original
 // "marked" log entry) instead of adding a new one.
 function syncBleedEventToServer(entry) {
@@ -5579,36 +3715,6 @@ function pushRoundToFirestore(entry) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(entry),
   }).catch(e => console.warn('round report error', e));
-}
-
-// Called when a new suspect event is created. dedupKey is derived from the
-// member's peak reputation value (shared game data, not local clock), so
-// it's already identical across every client that independently detects the
-// same event -- the server dedupes on it and only the first report reaches
-// Firestore.
-function pushSuspectToFirestore(entry) {
-  fetch('/api/suspects', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(entry),
-  }).catch(e => console.warn('suspect report error', e));
-}
-
-// Called when a new deduction entry is created. entry.ts is a local
-// Date.now() captured independently by whichever client detected it first,
-// so it can differ by a few seconds between clients watching the same real
-// event -- the server buckets ts into a 30s window for dedup (see
-// ingestTrackerEvent in server.js), which comfortably covers normal
-// cross-client poll skew while still letting a genuine repeat of the same
-// deduction value, hours later, log as its own entry.
-function pushDeductionToFirestore(entry) {
-  // Strip the members array before sending -- members are rebuilt from live data on read
-  const { members, ...core } = entry;
-  fetch('/api/deductions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(core),
-  }).catch(e => console.warn('deduction report error', e));
 }
 
 // ============================================================
@@ -6643,30 +4749,14 @@ window.fetchData                    = fetchData;
 window.viewClan                     = viewClan;
 window.renderRankings               = renderRankings;
 window.goBack                       = goBack;
-window.downloadDeductions           = downloadDeductions;
-window.setDedFilter                 = setDedFilter;
-window.downloadSuspects             = downloadSuspects;
 window.clearYourClan                = clearYourClan;
 window.toggleNotif                  = toggleNotif;
 window.toggleEventNotif             = toggleEventNotif;
 window.exportData                   = exportData;
 window.confirmDeleteRoundHistory    = confirmDeleteRoundHistory;
 window.confirmReset                 = confirmReset;
-window.confirmDeleteLocalRecords    = confirmDeleteLocalRecords;
-window.confirmDeleteFirebaseRecords = confirmDeleteFirebaseRecords;
 window.showAdminAccessModal         = showAdminAccessModal;
 window.exitAdminLevel               = exitAdminLevel;
-window.setSuspectFilter             = setSuspectFilter;
-window.toggleSection                = toggleSection;
-window.toggleSuspectDate            = toggleSuspectDate;
-window.toggleSuspectClan            = toggleSuspectClan;
-window.toggleDedApi                 = toggleDedApi;
-window.toggleDedDate                = toggleDedDate;
-window.toggleDedClan                = toggleDedClan;
-window.toggleDedOurClan             = toggleDedOurClan;
-window.toggleDedOurClanDate         = toggleDedOurClanDate;
-window.toggleSuspOurClan            = toggleSuspOurClan;
-window.toggleSuspOurClanDate        = toggleSuspOurClanDate;
 window.showTab                      = showTab;
 window.closeModal                   = closeModal;
 window.closePwModal                 = closePwModal;
@@ -6699,11 +4789,6 @@ window.confirmMarkBleed             = confirmMarkBleed;
 window.saveDiscordWebhook           = saveDiscordWebhook;
 window.showDiscordWebhookEditor     = showDiscordWebhookEditor;
 window.hideDiscordWebhookEditor     = hideDiscordWebhookEditor;
-window.showArchiveSeasonModal       = showArchiveSeasonModal;
-window.downloadSeasonReport         = downloadSeasonReport;
-window.toggleDeductionTracking      = toggleDeductionTracking;
-window.toggleSuspectTracking        = toggleSuspectTracking;
-window.toggleBothTracking           = toggleBothTracking;
 window.correctSeasonStart           = correctSeasonStart;
 
 })(); // end IIFE \u2014 all internals (accessLevel, setAccessLevel, etc.) are private
