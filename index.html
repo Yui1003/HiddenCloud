@@ -537,13 +537,13 @@ body::before{
     </div>
 
     <div class="login-field">
-      <label for="login-uid-input">Your Ninja Saga User ID</label>
+      <label for="login-uid-input">Your Ninja Saga IGN</label>
       <input
         class="login-input"
         id="login-uid-input"
-        type="number"
-        inputmode="numeric"
-        placeholder="e.g. 696969"
+        type="text"
+        inputmode="text"
+        placeholder="e.g. Sarvottam"
         autocomplete="off"
         onkeydown="if(event.key==='Enter')window.doLogin()"
         oninput="document.getElementById('login-uid-input').classList.remove('shake');document.getElementById('login-error-box').classList.remove('visible')"
@@ -553,14 +553,14 @@ body::before{
     <div class="login-hint">
       <div class="login-hint-icon">💡</div>
       <div class="login-hint-text">
-        Your <strong>User ID</strong> is shown in Ninja Saga under your
-        <strong>Profile tab</strong>, displayed as a number beside the emblem logo (e.g. <strong>ID: 696969</strong>).
+        Your <strong>IGN</strong> (in-game name) is your character's display name
+        in Ninja Saga — enter it exactly as it appears in your clan's roster.
       </div>
     </div>
 
     <div class="login-error" id="login-error-box">
       <div class="login-error-title">🚫 Access Denied</div>
-      <div class="login-error-sub" id="login-error-msg">This User ID is not a member of Hidden Cloud Village.</div>
+      <div class="login-error-sub" id="login-error-msg">This IGN is not a member of Hidden Cloud Village.</div>
     </div>
 
     <button class="login-btn" id="login-btn" onclick="window.doLogin()">Enter Tracker</button>
@@ -1143,8 +1143,35 @@ body::before{
 // STATE & STORAGE
 // ============================================================
 const API_URL = 'https://static.ninjasaga.cc/data/clan_rankings.json';
+
+// The rankings API no longer includes a numeric `id` on clan or member
+// objects — only `name`. The rest of this app was built around a stable
+// `.id` field (used as map/object keys, `state.currentDetailClanId`, the
+// "is this me" comparisons, etc.), so rather than rewrite every one of those
+// call sites, every raw API response is normalized once, right after
+// parsing: each clan and member gets `.id` synthesized from `.name`. Name is
+// the only stable identifier the API gives us now, so it doubles as the id.
+// One known edge case: two members with the exact identical in-game name in
+// the same clan would collide (the old numeric id couldn't collide; a name
+// theoretically can) — accepted as a rare, low-impact tradeoff since there's
+// no other per-member field left to key on.
+function normalizeRankingsData(json) {
+  if (json && Array.isArray(json.clans)) {
+    for (const clan of json.clans) {
+      if (clan.id === undefined) clan.id = clan.name;
+      for (const m of (clan.member_list || [])) {
+        if (m.id === undefined) m.id = m.name;
+      }
+    }
+  }
+  return json;
+}
 const STORAGE_KEY = 'clan_live_tracker';
-const PERMANENT_CLAN_ID = 777;
+// "Your clan" is hard-locked to Hidden Cloud Village. Used to be the numeric
+// clan id (777); the rankings API dropped numeric ids for clans and members,
+// so this is now the clan name — see normalizeRankingsData() above for why
+// `.id` still works as a comparison key everywhere else in this file.
+const PERMANENT_CLAN_ID = 'Hidden Cloud Village';
 const PUSH_PUBLIC_KEY_URL = '/api/push/public-key';
 const PUSH_SUBSCRIBE_URL = '/api/push/subscribe';
 const PUSH_CONFIRMED_URL = '/api/push/confirmed';
@@ -1326,7 +1353,7 @@ async function fetchData(manual = false) {
   try {
     const res = await fetch(API_URL, { cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const json = await res.json();
+    const json = normalizeRankingsData(await res.json());
 
     // Store previous for delta calc (must happen before state.data is overwritten)
     if (state.data) {
@@ -1398,8 +1425,13 @@ function flashChangedReps() {
   for (const clan of state.data.clans) {
     const delta = getClanDelta(clan.id);
     if (delta === null || delta === 0) continue;
-    // Find the card in DOM by onclick attribute
-    const cards = document.querySelectorAll(`[onclick="viewClan(${clan.id})"]`);
+    // Find the card in DOM by its data-clanid attribute. (Matching on the
+    // onclick attribute's exact text used to work when clan.id was a plain
+    // number; now that it's the clan's name, a name containing quotes or
+    // HTML-entity-escaped characters would make an onclick-text selector and
+    // the real DOM attribute disagree — a dedicated attribute with
+    // CSS.escape sidesteps that entirely.)
+    const cards = document.querySelectorAll(`[data-clanid="${CSS.escape(clan.id)}"]`);
     cards.forEach(card => {
       card.classList.remove('flash-up', 'flash-down');
       void card.offsetWidth; // reflow to restart animation
@@ -1873,7 +1905,7 @@ function renderRankings() {
       ${playerResults.map(({ member, clan }) => {
         const gain = member.weekGain || 0;
         const gainStr = gain > 0 ? `+${fmtNum(gain)} this round` : '';
-        return `<div class="player-result-card" onclick="viewClan(${clan.id})">
+        return `<div class="player-result-card" data-clanid="${esc(clan.id)}" onclick="viewClan(${jsAttrStr(clan.id)})">
           <div class="player-result-name">${esc(member.name)}</div>
           <div class="player-result-clan">#${clan.rank} ${esc(clan.name)}</div>
           ${gainStr ? `<div class="player-result-gain">${gainStr}</div>` : ''}
@@ -1914,10 +1946,10 @@ function renderRankings() {
     const bleedInfo = confirmedBleeds[clan.id];
     const bleedMarkedThisRound = bleedInfo && state.round.id && bleedInfo.roundId === state.round.id;
     const bleedBtnHtml = isLoggedIn
-      ? `<button class="bleed-btn${isConfirmedBleed ? ' active' : ''}" onclick="event.stopPropagation();toggleClanBleed(${clan.id})" ${isConfirmedBleed && !bleedMarkedThisRound ? 'style="opacity:0.55;cursor:default"' : ''}>${isConfirmedBleed ? '&#129656; Bleeding' : '&#129656; Mark Bleed'}</button>`
+      ? `<button class="bleed-btn${isConfirmedBleed ? ' active' : ''}" onclick="event.stopPropagation();toggleClanBleed(${jsAttrStr(clan.id)})" ${isConfirmedBleed && !bleedMarkedThisRound ? 'style="opacity:0.55;cursor:default"' : ''}>${isConfirmedBleed ? '&#129656; Bleeding' : '&#129656; Mark Bleed'}</button>`
       : '';
 
-    return `<div class="${cardClass}" onclick="viewClan(${clan.id})">
+    return `<div class="${cardClass}" data-clanid="${esc(clan.id)}" onclick="viewClan(${jsAttrStr(clan.id)})">
       <div class="clan-card-top">
         <div class="clan-rank ${rankClass}">#${clan.rank}</div>
         <div class="clan-name">${esc(clan.name)}</div>
@@ -2120,7 +2152,7 @@ function renderBleeding() {
   }
 
   // ── CONFIRMED BLEEDING section ─────────────────────────────────────────────
-  const confirmedList = Object.entries(confirmedBleeds).map(([id, info]) => ({ id: Number(id), ...info }));
+  const confirmedList = Object.entries(confirmedBleeds).map(([id, info]) => ({ id, ...info }));
   html += `<div class="section-header" style="color:var(--red)">&#129656; CONFIRMED BLEEDING (${confirmedList.length})</div>`;
   if (confirmedList.length === 0) {
     html += `<div class="empty-state" style="padding:16px 12px">
@@ -2136,7 +2168,7 @@ function renderBleeding() {
       const name = esc(info.clanName || (clan ? clan.name : '?'));
       const markedAt = info.markedAt ? new Date(info.markedAt) : null;
       const timeStr = markedAt ? fmtHMS(markedAt) : '\u2014';
-      return `<div class="bleed-clan-card" style="border-color:rgba(243,139,168,0.55)" onclick="viewClan(${info.id})">
+      return `<div class="bleed-clan-card" style="border-color:rgba(243,139,168,0.55)" onclick="viewClan(${jsAttrStr(info.id)})">
         <div class="bleed-clan-card-top">
           <div>
             <h3>${name} <span style="font-size:11px;color:var(--text3)">#${rank}</span></h3>
@@ -2147,7 +2179,7 @@ function renderBleeding() {
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
             <div class="bleed-clan-delta-big" style="color:var(--red)">${roundGain !== null ? (roundGain >= 0 ? '+' : '') + fmtNum(roundGain) : rep}</div>
-            ${loggedInUserName && info.roundId === state.round.id ? `<button class="bleed-btn active" onclick="event.stopPropagation();toggleClanBleed(${info.id})" style="font-size:10px">Unmark</button>` : ''}
+            ${loggedInUserName && info.roundId === state.round.id ? `<button class="bleed-btn active" onclick="event.stopPropagation();toggleClanBleed(${jsAttrStr(info.id)})" style="font-size:10px">Unmark</button>` : ''}
           </div>
         </div>
       </div>`;
@@ -2176,7 +2208,7 @@ function renderBleeding() {
 function repStatusCardHtml(clan) {
   const roundGain = getClanRoundGainForDisplay(clan.id);
   const status = getClanRepStatus(clan.id);
-  return `<div class="bleed-clan-card" onclick="viewClan(${clan.id})">
+  return `<div class="bleed-clan-card" onclick="viewClan(${jsAttrStr(clan.id)})">
     <div class="bleed-clan-card-top">
       <div>
         <h3>${esc(clan.name)} <span style="font-size:11px;color:var(--text3)">#${clan.rank}</span></h3>
@@ -3359,7 +3391,24 @@ function timeAgo(d) {
 }
 
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Produces a single-quoted JS string literal, safe to interpolate inside an
+// onclick="..." HTML attribute (double-quoted). Needed because clan/member
+// "id" is now their in-game name (see normalizeRankingsData) — unlike the
+// old numeric id, a name can contain spaces, apostrophes, or quote
+// characters, none of which are safe to drop straight into `onclick="fn(${id})"`
+// the way a bare number was.
+function jsAttrStr(s) {
+  const jsEscaped = String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r?\n/g, '\\n');
+  const htmlSafe = jsEscaped
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;');
+  return "'" + htmlSafe + "'";
 }
 
 function statusColor(status) {
@@ -3585,7 +3634,7 @@ async function initFirestoreListeners() {
         confirmedBleeds = {};
         Object.entries(data).forEach(([id, info]) => {
           if (info && info.active) {
-            confirmedBleeds[Number(id)] = info;
+            confirmedBleeds[id] = info;
             const key = `${id}:${info.markedAt || ''}`;
             if (!isInitial && info.markedAt && !confirmedBleedNotificationKeys.has(key) && !pushSubscriptionActive) {
               confirmedBleedNotificationKeys.add(key);
@@ -4803,7 +4852,7 @@ window.correctSeasonStart           = correctSeasonStart;
      ============================================================ -->
 <script>
 (function () {
-  const CLAN_ID        = 777;
+  const CLAN_NAME       = 'Hidden Cloud Village';
   const API_URL        = 'https://static.ninjasaga.cc/data/clan_rankings.json';
   const SESSION_KEY    = 'hcld_session';
   const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -4843,10 +4892,8 @@ window.correctSeasonStart           = correctSeasonStart;
 
   /* ── login action (called by button + Enter key) ── */
   window.doLogin = async function () {
-    var raw = document.getElementById('login-uid-input').value.trim();
-    if (!raw) { showError('Please enter your User ID.'); return; }
-    var userId = parseInt(raw, 10);
-    if (!userId || userId <= 0) { showError('User ID must be a positive number.'); return; }
+    var ign = document.getElementById('login-uid-input').value.trim();
+    if (!ign) { showError('Please enter your in-game name.'); return; }
 
     setLoading(true);
     try {
@@ -4854,22 +4901,29 @@ window.correctSeasonStart           = correctSeasonStart;
       if (!res.ok) throw new Error('API returned ' + res.status + '. Try again.');
       var data = await res.json();
 
-      var clan = (data.clans || []).find(function(c){ return c.id === CLAN_ID; });
+      var clan = (data.clans || []).find(function(c){ return c.name === CLAN_NAME; });
       if (!clan) throw new Error('Clan data unavailable. Please refresh and try again.');
 
-      var member = (clan.member_list || []).find(function(m){ return m.id === userId; });
+      // Case-insensitive match — the game doesn't guarantee the exact case a
+      // player types matches what's stored, and there's no separate numeric
+      // ID anymore to fall back on if the case doesn't line up.
+      var member = (clan.member_list || []).find(function(m){
+        return typeof m.name === 'string' && m.name.toLowerCase() === ign.toLowerCase();
+      });
       if (!member) {
         showError(
-          'User ID ' + userId + ' is not a member of Hidden Cloud Village. ' +
+          '"' + ign + '" is not a member of Hidden Cloud Village. ' +
           'Only active clan members can access this tracker.'
         );
         setLoading(false);
         return;
       }
 
-      // Valid member — save session and boot the tracker
-      writeSession(userId, member.name);
-      window._hcldInitTracker(userId, member.name);
+      // Valid member — save session and boot the tracker. The member's own
+      // in-game name (exact casing from the API) doubles as their identity
+      // everywhere else in the app now, so it's used for both fields.
+      writeSession(member.name, member.name);
+      window._hcldInitTracker(member.name, member.name);
 
     } catch (e) {
       showError(e.message || 'Could not verify membership. Check your connection and try again.');
@@ -4884,11 +4938,14 @@ window.correctSeasonStart           = correctSeasonStart;
     fetch(API_URL, { cache: 'no-store' })
       .then(function(res) { return res.json(); })
       .then(function(data) {
-        var clan = (data.clans || []).find(function(c){ return c.id === CLAN_ID; });
-        var member = clan && (clan.member_list || []).find(function(m){ return m.id === userId; });
+        var clan = (data.clans || []).find(function(c){ return c.name === CLAN_NAME; });
+        var member = clan && (clan.member_list || []).find(function(m){
+          return typeof m.name === 'string' && m.name.toLowerCase() === String(userName).toLowerCase();
+        });
         if (member) {
-          // Still a member — refresh the session timestamp and update name
-          writeSession(userId, member.name);
+          // Still a member — refresh the session timestamp and pick up any
+          // casing change to their name.
+          writeSession(member.name, member.name);
         } else {
           // No longer in the clan — clear session and reload to show login
           clearSession();
