@@ -4683,18 +4683,16 @@ async function submitPwModal() {
     if (pwModalMode === 'clearRounds') { await executeClearRoundHistory(); return; }
 
     try {
-      const suspSnap = await db.collection('suspectLog').limit(500).get();
-      const batch1 = db.batch();
-      suspSnap.forEach(doc => batch1.delete(doc.ref));
-      await batch1.commit();
-    } catch(e) { console.warn('Firebase suspectLog delete error', e); }
-
-    try {
-      const dedSnap = await db.collection('deductionLog').limit(500).get();
-      const batch2 = db.batch();
-      dedSnap.forEach(doc => batch2.delete(doc.ref));
-      await batch2.commit();
-    } catch(e) { console.warn('Firebase deductionLog delete error', e); }
+      const res = await fetch('/api/suspects-deductions/clear', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    } catch(e) {
+      console.warn('suspects/deductions clear error', e);
+      errEl.textContent = 'Failed to delete Firebase records. Check your connection and try again.';
+      btn.disabled = false;
+      btn.textContent = pwModalConfirmLabel();
+      return;
+    }
 
     state.suspectLog   = [];
     state.deductionLog = [];
@@ -5383,6 +5381,15 @@ async function initFirestoreListeners() {
           state.roundHistory = [];
           saveToStorage();
           if (state.currentTab === 'history') renderHistory();
+
+        } else if (type === 'suspectsDeductionsCleared') {
+          state.suspectLog   = [];
+          state.deductionLog = [];
+          suspectLogKeysSeen.clear();
+          saveToStorage();
+          updateSuspectsTabBadge();
+          if (state.currentTab === 'suspects')   renderSuspects();
+          if (state.currentTab === 'deductions') renderDeductions();
 
         } else if (type === 'pauseState') {
           trackerPause = entry;
