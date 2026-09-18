@@ -620,6 +620,11 @@ function updateWeeklyGains(json) {
   let changed = false;
   let newBaselineAdded = false; // a brand-new mid-season join was just baselined
 
+  // Safety net: fold in any duplicate-by-name rows every poll, not just on
+  // restore, so an already-corrupted running instance self-heals
+  // immediately instead of waiting for a restart. See dedupeMembersByName.
+  if (dedupeMembersByName(members)) changed = true;
+
   // Clan-wide peak reputation for the season — tracked continuously (not
   // just read once at season end) so the Season History snapshot doesn't
   // depend on polling at exactly the right instant. Frozen once the season
@@ -750,6 +755,57 @@ async function syncWeeklyGainsToFirestore() {
   else        console.warn('[weekly] Firestore sync failed:', res.status);
 }
 
+// Self-heals duplicate rows for the same member inside a gains `members` map
+// (eventGainsState[id].members or weeklyGainsState.members). This is the fix
+// for the userId → name migration: any Firestore doc written before that
+// migration still has its members keyed by the old numeric userId, with
+// `.name` as just a field inside each entry. Restoring that doc used to copy
+// those entries in under their *old* id keys, sitting right alongside the
+// entries live polling now writes keyed by `member.name` — same person, two
+// map keys, two leaderboard rows (the older-looking, frozen one is always
+// the legacy id-keyed entry, since it stopped being updated by live polls
+// the moment the migration landed). Grouping by `.name` and merging finds
+// and fixes these regardless of which raw keys they ended up under, so it's
+// safe to call defensively on every poll, not just during a Firestore
+// restore. Merge rule: keep whichever startRep/weekStartRep is LOWER
+// (preserves the most gain already observed) and whichever
+// currentRep/pings/pendingPings is HIGHER (never move a value backwards).
+function dedupeMembersByName(members) {
+  const byName = new Map();
+  for (const [key, m] of Object.entries(members)) {
+    if (!m || !m.name) continue;
+    if (!byName.has(m.name)) byName.set(m.name, []);
+    byName.get(m.name).push(key);
+  }
+  let changed = false;
+  for (const [name, keys] of byName) {
+    if (keys.length < 2) continue;
+    // Prefer the entry already keyed by the canonical (current) name so we
+    // don't need to touch every other reference to this member's key.
+    const canonicalKey = keys.includes(name) ? name : keys[0];
+    const merged = { ...members[canonicalKey] };
+    for (const key of keys) {
+      if (key === canonicalKey) continue;
+      const other = members[key];
+      if (typeof other.startRep === 'number' &&
+          (typeof merged.startRep !== 'number' || other.startRep < merged.startRep)) merged.startRep = other.startRep;
+      if (typeof other.weekStartRep === 'number' &&
+          (typeof merged.weekStartRep !== 'number' || other.weekStartRep < merged.weekStartRep)) merged.weekStartRep = other.weekStartRep;
+      if (typeof other.currentRep === 'number' &&
+          (typeof merged.currentRep !== 'number' || other.currentRep > merged.currentRep)) merged.currentRep = other.currentRep;
+      if (typeof other.pings === 'number' &&
+          (typeof merged.pings !== 'number' || other.pings > merged.pings)) merged.pings = other.pings;
+      if (typeof other.pendingPings === 'number' &&
+          (typeof merged.pendingPings !== 'number' || other.pendingPings > merged.pendingPings)) merged.pendingPings = other.pendingPings;
+      delete members[key];
+    }
+    members[name] = merged;
+    if (canonicalKey !== name) delete members[canonicalKey];
+    changed = true;
+  }
+  return changed;
+}
+
 // Reconciles local eventGainsState[eventId] against Firestore's eventGains/{id}
 // doc. Called once per event, before any local baselining is trusted enough
 // to sync back out (see eventGainsReconciled). Without this, a server
@@ -803,6 +859,11 @@ async function restoreEventGainsFromFirestore(eventId) {
         local[id].pendingPings = fsm.pendingPings; corrected++;
       }
     }
+
+    // Legacy id-keyed entries from a pre-migration Firestore doc land in
+    // `local` above under their old numeric key — fold them into the
+    // matching name-keyed entry now so they never render as a second row.
+    if (dedupeMembersByName(local)) corrected++;
 
     eventGainsReconciled.add(eventId);
     if (corrected > 0) {
@@ -928,6 +989,10 @@ async function restoreWeeklyGainsFromFirestore() {
         weeklyGainsState.clanPeakRep = fsClanPeak;
         corrected++;
       }
+      // Legacy id-keyed entries from a pre-migration Firestore doc land
+      // above under their old numeric key — fold them into the matching
+      // name-keyed entry now so they never render as a second row.
+      if (dedupeMembersByName(weeklyGainsState.members)) corrected++;
       if (corrected > 0) {
         writeJson(WEEKLY_GAINS_FILE, weeklyGainsState);
         console.log(`[weekly] Corrected ${corrected} member baseline(s) from Firestore (lower weekStartRep used).`);
@@ -944,6 +1009,11 @@ async function restoreWeeklyGainsFromFirestore() {
     for (const [id, m] of Object.entries(rawMembers)) {
       members[id] = { name: m.name, weekStartRep: m.weekStartRep, currentRep: m.currentRep };
     }
+    // Wholesale-adopting an older Firestore doc can still carry legacy
+    // numeric-id keys — fold any same-name duplicates before this becomes
+    // the live state, so live polling (which keys by member.name) doesn't
+    // start writing a second row next to a frozen legacy one.
+    dedupeMembersByName(members);
     weeklyGainsState = {
       weekKey:        fsVal(doc.fields.weekKey),
       weekStartLabel: fsVal(doc.fields.weekStartLabel),
@@ -1548,6 +1618,11 @@ function updateEventGains(json) {
     if (!eventGainsState[ev.id]) eventGainsState[ev.id] = { members: {} };
     const st = eventGainsState[ev.id];
     let changed = false;
+
+    // Safety net: fold in any duplicate-by-name rows every poll, not just
+    // on restore, so an already-corrupted running instance self-heals
+    // immediately instead of waiting for a restart. See dedupeMembersByName.
+    if (dedupeMembersByName(st.members)) changed = true;
 
     // Ping Events measure reputation gained since the SEASON started, not
     // since the event started — and the rankings API already reports
