@@ -8,7 +8,10 @@ const PORT = Number(process.env.PORT || 5000);
 const API_URL = 'https://static.ninjasaga.cc/data/clan_rankings.json';
 const POLL_INTERVAL_MS = 5000;
 const MEMBERSHIP_PURGE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-const HIDDEN_CLOUD_CLAN_ID = 777;
+// The rankings API used to include a numeric `id` on every clan and member —
+// that field is gone now, so clan/member identity is tracked by `name`
+// instead (see the note above HIDDEN_CLOUD_CLAN_NAME's uses below).
+const HIDDEN_CLOUD_CLAN_NAME = 'Hidden Cloud Village';
 const POSSIBLE_BLEEDING_CLAN_THRESHOLD = 2;
 const POSSIBLE_BLEEDING_DELAY_MS = 10000;
 const DATA_DIR = process.env.PUSH_DATA_DIR || path.join(__dirname, '.data');
@@ -486,7 +489,7 @@ function startNewWeek(seasonId, seasonEndTs, weekStartTs, weekIndex) {
 }
 
 function updateWeeklyGains(json) {
-  const hcClan = (json.clans || []).find((c) => c.id === HIDDEN_CLOUD_CLAN_ID);
+  const hcClan = (json.clans || []).find((c) => c.name === HIDDEN_CLOUD_CLAN_NAME);
   if (!hcClan) return;
   const season = json.season;
   if (!season || !season.id || !season.end_time_ts) return; // no season data this poll — try again next poll
@@ -628,7 +631,7 @@ function updateWeeklyGains(json) {
   }
 
   // Build the set of member IDs currently in the clan.
-  const currentMemberIds = new Set((hcClan.member_list || []).map((m) => String(m.id)));
+  const currentMemberIds = new Set((hcClan.member_list || []).map((m) => m.name));
 
   // Reputation is always 0 at the true start of a season, so week 1's
   // baseline for every member must always be 0 — this is a hard invariant,
@@ -648,7 +651,7 @@ function updateWeeklyGains(json) {
   }
 
   for (const member of hcClan.member_list || []) {
-    const id  = String(member.id);
+    const id  = member.name;
     const rep = member.reputation;
     if (!members[id]) {
       // Still baseline a newly-seen member even after the season ended, so
@@ -1128,13 +1131,13 @@ function recordGainEvents(json) {
   const now = Date.now();
   const previous = detectorState.previous;
   const events = detectorState.memberGainEvents || {};
-  const current = new Map(json.clans.map((clan) => [clan.id, clan]));
+  const current = new Map(json.clans.map((clan) => [clan.name, clan]));
 
   for (const clan of json.clans) {
-    const previousClan = previous?.clans?.find((item) => item.id === clan.id);
+    const previousClan = previous?.clans?.find((item) => item.name === clan.name);
     for (const member of clan.member_list || []) {
-      const key = `${clan.id}_${member.id}`;
-      const previousMember = previousClan?.member_list?.find((item) => item.id === member.id);
+      const key = `${clan.name}_${member.name}`;
+      const previousMember = previousClan?.member_list?.find((item) => item.name === member.name);
       if (previousMember && member.reputation > previousMember.reputation) {
         events[key] = [...(events[key] || []), now].filter((ts) => now - ts <= 15000);
       } else {
@@ -1146,14 +1149,14 @@ function recordGainEvents(json) {
   const bleedingClanIds = new Set();
   for (const clan of json.clans) {
     for (const member of clan.member_list || []) {
-      const timestamps = events[`${clan.id}_${member.id}`] || [];
+      const timestamps = events[`${clan.name}_${member.name}`] || [];
       for (let i = 1; i < timestamps.length; i++) {
         if (timestamps[i] - timestamps[i - 1] <= 10000) {
-          bleedingClanIds.add(clan.id);
+          bleedingClanIds.add(clan.name);
           break;
         }
       }
-      if (bleedingClanIds.has(clan.id)) break;
+      if (bleedingClanIds.has(clan.name)) break;
     }
   }
 
@@ -1536,7 +1539,7 @@ async function tallyEventPings(ev) {
 // member's reputation baseline the moment an event starts, tracks live gains
 // while it's running, and (for Ping Events) tallies pinger standings.
 function updateEventGains(json) {
-  const hcClan = (json.clans || []).find((c) => c.id === HIDDEN_CLOUD_CLAN_ID);
+  const hcClan = (json.clans || []).find((c) => c.name === HIDDEN_CLOUD_CLAN_NAME);
   if (!hcClan) return;
   const now = Date.now();
 
@@ -1569,7 +1572,7 @@ function updateEventGains(json) {
 
     if (now <= ev.endTs) {
       for (const member of hcClan.member_list || []) {
-        const id  = String(member.id);
+        const id  = member.name;
         const rep = member.reputation;
         if (!st.members[id]) {
           // First time seen during this event — baseline them now (covers
@@ -1610,14 +1613,15 @@ function updateEventGains(json) {
 
 // ── Membership purge ──────────────────────────────────────────────────────────
 // Runs every 5 minutes during the poll loop. Removes push subscriptions whose
-// userId is no longer in the Hidden Cloud Village member list. Subscriptions
+// userId (holds the member's in-game name now — see the login-gate note in
+// index.html) is no longer in the Hidden Cloud Village member list. Subscriptions
 // with no userId (legacy / anonymous) are left untouched.
 let lastMembershipPurge = 0;
 
 async function purgeExMemberSubscriptions(json) {
-  const hcClan = (json.clans || []).find((c) => c.id === HIDDEN_CLOUD_CLAN_ID);
+  const hcClan = (json.clans || []).find((c) => c.name === HIDDEN_CLOUD_CLAN_NAME);
   if (!hcClan) return; // can't verify — skip this cycle
-  const memberIds = new Set((hcClan.member_list || []).map((m) => String(m.id)));
+  const memberIds = new Set((hcClan.member_list || []).map((m) => m.name));
 
   const before = subscriptions.length;
   const removed = [];
@@ -1695,7 +1699,7 @@ async function pollForPossibleBleeding() {
 // and receive real-time updates via SSE whenever any user marks/clears a bleed.
 
 const sseClients = new Set();
-let serverConfirmedBleeds = {}; // clanId (number) → bleed doc
+let serverConfirmedBleeds = {}; // clanId (now the clan's name string) → bleed doc
 
 function broadcastBleeds() {
   const payload = `data: ${JSON.stringify(serverConfirmedBleeds)}\n\n`;
@@ -1743,7 +1747,7 @@ async function fetchConfirmedBleeds() {
     const next = { ...serverConfirmedBleeds };
     for (const doc of docs) {
       const f = doc.fields || {};
-      const id = Number(doc.name.split('/').pop());
+      const id = doc.name.split('/').pop();
       const entry = {};
       for (const [k, v] of Object.entries(f)) entry[k] = fsRestVal(v);
       if (fsRestVal(f.active)) {
@@ -2069,11 +2073,10 @@ app.post('/api/bleeds/sync', (req, res) => {
   if (bleeds && typeof bleeds === 'object') {
     const next = { ...serverConfirmedBleeds };
     for (const [id, data] of Object.entries(bleeds)) {
-      const numId = Number(id);
       if (data === null || (data && data.active === false)) {
-        delete next[numId];
+        delete next[id];
       } else if (data && data.active) {
-        next[numId] = data;
+        next[id] = data;
       }
     }
     serverConfirmedBleeds = next;
